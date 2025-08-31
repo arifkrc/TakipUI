@@ -1,0 +1,17 @@
+{
+  "name": "takip-admin",
+  "version": "0.1.0",
+  "description": "Electron admin panel with Uretim, Paketleme, Uretim-Paket Farkı, Siparişler screens",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^26.0.0"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}
