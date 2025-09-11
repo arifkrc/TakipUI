@@ -1,4 +1,4 @@
-import { createRowCountSelector, createPaginationControls } from '../ui/helpers.js';
+import { createRowCountSelector, createPaginationControls, createStagingControls, showToast } from '../ui/helpers.js';
 let _cleanup = null;
 
 export async function mount(container, { setHeader }) {
@@ -12,6 +12,7 @@ export async function mount(container, { setHeader }) {
         <button id="import-files" class="px-4 py-2 rounded bg-green-600 hover:bg-green-500">Dosya İçe Aktar (CSV/XLSX)</button>
       </div>
 
+      <div id="staging-controls-placeholder"></div>
       <div id="siparis-import-preview" class="mb-4"></div>
 
       <form id="siparis-form" class="space-y-4 mb-4">
@@ -41,10 +42,40 @@ export async function mount(container, { setHeader }) {
   `;
 
   const importBtn = container.querySelector('#import-files');
+  const stagingPlaceholder = container.querySelector('#staging-controls-placeholder');
   const importPreview = container.querySelector('#siparis-import-preview');
   const form = container.querySelector('#siparis-form');
   const resetBtn = container.querySelector('#siparis-reset');
   const listPlaceholder = container.querySelector('#siparis-list-placeholder');
+
+  // Create staging controls
+  const stagingControls = createStagingControls('siparis', {
+    onAddLocal: async () => {
+      const data = Object.fromEntries(new FormData(form).entries());
+      ['siparisAdet', 'devirSayisi'].forEach(k => { 
+        if (data[k] !== undefined) data[k] = Number(data[k]) || 0; 
+      });
+
+      if (!data.urunKodu) {
+        throw new Error('Ürün kodu gerekli');
+      }
+
+      await window.api.stagingAdd('siparis', data);
+      showToast('Sipariş local\'e eklendi', 'success');
+      form.reset();
+    },
+    onUploadAll: async () => {
+      return await window.api.stagingUpload('siparis');
+    },
+    onClearAll: async () => {
+      await window.api.stagingClear('siparis');
+    },
+    refreshCallback: async () => {
+      await loadList();
+    }
+  });
+  
+  stagingPlaceholder.appendChild(stagingControls);
 
   let lastPreview = { rows: [], filePaths: [] };
 

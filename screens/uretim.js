@@ -1,4 +1,4 @@
-import { showToast, showFormErrors, clearFormErrors, createRowCountSelector, createPaginationControls } from '../ui/helpers.js';
+import { showToast, showFormErrors, clearFormErrors, createRowCountSelector, createPaginationControls, createStagingControls, setupTimeInputs } from '../ui/helpers.js';
 
 let _cleanup = null;
 
@@ -20,10 +20,12 @@ export async function mount(container, { setHeader }) {
           <label class="flex flex-col text-sm">Ürün Kodu<input name="urunKodu" type="text" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" /></label>
         </div>
 
-        <div class="grid grid-cols-3 gap-4">
+        <div class="grid grid-cols-5 gap-4">
+          <label class="flex flex-col text-sm">Operasyon Kodu<input name="operasyonKodu" id="operasyon-kod-input" type="text" maxlength="2" placeholder="01" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100 text-center font-mono" /></label>
+          <label class="flex flex-col text-sm">Operasyon Türü<select name="operasyonTuru" id="operasyon-select" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100"><option value="">Seçiniz...</option></select></label>
           <label class="flex flex-col text-sm">Üretim Adedi<input name="uretimAdedi" type="number" min="0" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" /></label>
-          <label class="flex flex-col text-sm">İş Başlangıç Saati<input name="baslangic" type="time" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" /></label>
-          <label class="flex flex-col text-sm">İş Bitiş Saati<input name="bitis" type="time" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" /></label>
+          <label class="flex flex-col text-sm">İş Başlangıç<input name="baslangic" type="text" pattern="[0-9]{2}:[0-9]{2}" placeholder="08:30" inputmode="numeric" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" /></label>
+          <label class="flex flex-col text-sm">İş Bitiş<input name="bitis" type="text" pattern="[0-9]{2}:[0-9]{2}" placeholder="17:30" inputmode="numeric" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" /></label>
         </div>
 
         <div class="grid grid-cols-4 gap-4">
@@ -46,12 +48,47 @@ export async function mount(container, { setHeader }) {
         </div>
       </form>
 
+      <div id="staging-controls-placeholder"></div>
       <div id="uretim-list-placeholder"></div>
     </div>
   `;
 
   const form = container.querySelector('#uretim-form');
+  const stagingPlaceholder = container.querySelector('#staging-controls-placeholder');
   const listPlaceholder = container.querySelector('#uretim-list-placeholder');
+
+  // Create staging controls
+  const stagingControls = createStagingControls('uretim', {
+    onAddLocal: async () => {
+      clearFormErrors(form);
+      const data = Object.fromEntries(new FormData(form).entries());
+      ['uretimAdedi','dokumHatasi','operatorHatasi','tezgahArizasi','tezgahAyari','elmasDegisimi','parcaBekleme','temizlik','mola'].forEach(k => { if (data[k] !== undefined) data[k] = Number(data[k]) || 0; });
+
+      const errors = [];
+      if (!data.tarih) errors.push({ field: 'tarih', msg: 'Tarih gerekli' });
+      if (!data.operator) errors.push({ field: 'operator', msg: 'Operator girin' });
+      if (errors.length) { 
+        showFormErrors(form, errors); 
+        throw new Error('Form validation failed');
+      }
+
+      await window.api.stagingAdd('uretim', data);
+      showToast('Kayıt local\'e eklendi', 'success');
+      form.reset();
+      setDefaultDate();
+    },
+    onUploadAll: async () => {
+      return await window.api.stagingUpload('uretim');
+    },
+    onClearAll: async () => {
+      await window.api.stagingClear('uretim');
+    },
+    refreshCallback: async () => {
+      await loadList();
+    }
+  });
+  
+  stagingPlaceholder.appendChild(stagingControls);
 
   function setDefaultDate() {
     const dateInput = form.querySelector('[name="tarih"]');
@@ -62,6 +99,143 @@ export async function mount(container, { setHeader }) {
   }
 
   setDefaultDate();
+
+  // Setup time inputs for 24-hour format
+  setupTimeInputs(container);
+
+  // Load operation types
+  let operationsData = [];
+  
+  async function loadOperationTypes() {
+    try {
+      // Fetch from API endpoint directly
+      const response = await fetch('https://localhost:7196/api/OperationType?onlyActive=true', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      operationsData = data;
+      
+      const select = container.querySelector('#operasyon-select');
+      if (select) {
+        // Clear existing options
+        select.innerHTML = '<option value="">Seçiniz...</option>';
+        
+        // Add all operation options for display
+        operationsData.forEach(op => {
+          const option = document.createElement('option');
+          option.value = op.operationCode;
+          option.textContent = `${op.operationCode} - ${op.operationName}`;
+          select.appendChild(option);
+        });
+        
+        // Make it clickable for selection
+        select.style.pointerEvents = 'auto';
+        select.style.cursor = 'pointer';
+      }
+    } catch (err) {
+      console.error('Operation types load error:', err);
+      showToast('Operasyon türleri yüklenemedi', 'error');
+    }
+  }
+
+  // Setup operation code input auto-complete
+  function setupOperationCodeInput() {
+    const codeInput = container.querySelector('#operasyon-kod-input');
+    const select = container.querySelector('#operasyon-select');
+    
+    if (!codeInput || !select) return;
+    
+    // Real-time matching as user types
+    codeInput.addEventListener('input', function(e) {
+      let code = e.target.value.trim();
+      
+      // Limit to 2 characters and only allow numbers
+      if (code.length > 2) {
+        code = code.substring(0, 2);
+        e.target.value = code;
+      }
+      
+      // Find matching operation
+      const matchedOp = operationsData.find(op => 
+        op.operationCode && op.operationCode === code
+      );
+      
+      if (matchedOp && code.length > 0) {
+        // Set select value and show matched operation
+        select.value = matchedOp.operationCode;
+        select.style.color = '#e5e7eb'; // text-neutral-200
+        
+        // Update the display text
+        const matchingOption = select.querySelector(`option[value="${matchedOp.operationCode}"]`);
+        if (matchingOption) {
+          matchingOption.selected = true;
+        }
+      } else {
+        // Reset select if no match
+        select.value = '';
+        select.style.color = '#9ca3af'; // text-neutral-400
+      }
+    });
+    
+    // Auto-format and validate on focus out
+    codeInput.addEventListener('blur', function(e) {
+      let code = e.target.value.trim();
+      if (code.length > 2) {
+        code = code.substring(0, 2);
+      }
+      // Pad with leading zero if single digit
+      if (code.length === 1 && /^\d$/.test(code)) {
+        code = '0' + code;
+      }
+      e.target.value = code;
+      
+      // Final validation
+      if (code.length > 0) {
+        const matchedOp = operationsData.find(op => 
+          op.operationCode && op.operationCode === code
+        );
+        
+        if (matchedOp) {
+          showToast(`✓ ${matchedOp.operationName}`, 'success');
+        } else {
+          showToast('Operasyon kodu bulunamadı', 'error');
+        }
+      }
+    });
+    
+    // Only allow numeric characters
+    codeInput.addEventListener('keypress', function(e) {
+      const char = e.key;
+      if (!/[0-9]/.test(char) && char !== 'Backspace' && char !== 'Delete') {
+        e.preventDefault();
+      }
+    });
+    
+    // Handle combobox selection - update code input when user selects from dropdown
+    select.addEventListener('change', function(e) {
+      const selectedCode = e.target.value;
+      if (selectedCode && selectedCode !== '') {
+        codeInput.value = selectedCode;
+        const matchedOp = operationsData.find(op => op.operationCode === selectedCode);
+        if (matchedOp) {
+          showToast(`✓ ${matchedOp.operationName}`, 'success');
+        }
+      }
+    });
+  }
+
+  // Load operation types on mount
+  loadOperationTypes().then(() => {
+    setupOperationCodeInput();
+  });
 
   // handlers with references so they can be removed on unmount
   async function submitHandler(e) {
@@ -133,7 +307,7 @@ export async function mount(container, { setHeader }) {
       // apply search filtering
       const q = (searchInput && searchInput.value || '').trim().toLowerCase();
       const filtered = q ? records.filter(r => {
-        return ['tarih','vardiya','ustabasi','bolum','operator','urunKodu'].some(k => String(r[k] || '').toLowerCase().includes(q));
+        return ['tarih','vardiya','ustabasi','bolum','operator','urunKodu','operasyonKodu'].some(k => String(r[k] || '').toLowerCase().includes(q));
       }) : records;
       const limit = select.value;
       pageSize = (limit === 'all') ? records.length || 1 : Number(limit || 20);
@@ -157,6 +331,7 @@ export async function mount(container, { setHeader }) {
                 <th class="p-2">Operator</th>
                 <th class="p-2">\u00dcr\u00fcn Kodu</th>
                 <th class="p-2">\u00dcretim Adedi</th>
+                <th class="p-2">Op. Kodu</th>
                 <th class="p-2">Ba\u015flang\u0131\u00e7</th>
                 <th class="p-2">Biti\u015f</th>
                 <th class="p-2">D\u00f6k\u00fcm</th>
@@ -181,6 +356,7 @@ export async function mount(container, { setHeader }) {
                   <td class="p-2">${r.operator || ''}</td>
                   <td class="p-2">${r.urunKodu || ''}</td>
                   <td class="p-2">${r.uretimAdedi || ''}</td>
+                  <td class="p-2">${r.operasyonKodu || ''}</td>
                   <td class="p-2">${r.baslangic || ''}</td>
                   <td class="p-2">${r.bitis || ''}</td>
                   <td class="p-2">${r.dokumHatasi || ''}</td>

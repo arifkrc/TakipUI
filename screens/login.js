@@ -3,8 +3,8 @@ export async function mount(container, { setHeader, onLogin }) {
   setHeader('Giriş', 'Kullanıcı girişi');
   container.innerHTML = `
     <div class="flex flex-col items-center justify-center min-h-[60vh]">
-      <form id="login-form" class="bg-neutral-900 p-8 rounded shadow w-full max-w-sm space-y-6">
-        <h2 class="text-2xl font-bold mb-4 text-center">Giriş Yap</h2>
+      <form id="login-form" class="bg-neutral-900 p-8 rounded-lg shadow-xl w-full max-w-sm space-y-6 border border-neutral-800">
+        <h2 class="text-xl font-semibold mb-4 text-center text-neutral-200">Sisteme Giriş</h2>
         <div>
           <label class="block text-sm mb-1">Kullanıcı Adı</label>
           <input name="username" type="text" class="w-full px-3 py-2 rounded bg-neutral-800 text-neutral-100" required />

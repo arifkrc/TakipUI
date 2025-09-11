@@ -1,4 +1,4 @@
-import { createRowCountSelector, createPaginationControls } from '../ui/helpers.js';
+import { createRowCountSelector, createPaginationControls, createStagingControls, showToast, showFormErrors, clearFormErrors } from '../ui/helpers.js';
 let _cleanup = null;
 
 export async function mount(container, { setHeader }) {
@@ -20,12 +20,48 @@ export async function mount(container, { setHeader }) {
         </div>
       </form>
 
+      <div id="staging-controls-placeholder"></div>
       <div id="operasyon-list-placeholder"></div>
     </div>
   `;
 
   const form = container.querySelector('#operasyon-form');
+  const stagingPlaceholder = container.querySelector('#staging-controls-placeholder');
   const placeholder = container.querySelector('#operasyon-list-placeholder');
+
+  // Create staging controls
+  const stagingControls = createStagingControls('operasyon', {
+    onAddLocal: async () => {
+      clearFormErrors(form);
+      const fd = new FormData(form);
+      const data = Object.fromEntries(fd.entries());
+      data.aktif = !!form.querySelector('[name="aktif"]').checked;
+
+      const errors = [];
+      if (!data.operasyonKodu) errors.push({ field: 'operasyonKodu', msg: 'Operasyon kodu gerekli' });
+      if (!data.operasyonAdi) errors.push({ field: 'operasyonAdi', msg: 'Operasyon adı gerekli' });
+      if (errors.length) { 
+        showFormErrors(form, errors); 
+        throw new Error('Form validation failed');
+      }
+
+      await window.api.stagingAdd('operasyon', data);
+      showToast('Operasyon local\'e eklendi', 'success');
+      form.reset();
+      form.querySelector('[name="aktif"]').checked = true;
+    },
+    onUploadAll: async () => {
+      return await window.api.stagingUpload('operasyon');
+    },
+    onClearAll: async () => {
+      await window.api.stagingClear('operasyon');
+    },
+    refreshCallback: async () => {
+      await loadList();
+    }
+  });
+  
+  stagingPlaceholder.appendChild(stagingControls);
 
   async function submitHandler(e) {
     e.preventDefault();

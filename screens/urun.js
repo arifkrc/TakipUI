@@ -1,4 +1,4 @@
-import { createRowCountSelector, createPaginationControls } from '../ui/helpers.js';
+import { createRowCountSelector, createPaginationControls, createStagingControls, showToast, showFormErrors, clearFormErrors } from '../ui/helpers.js';
 let _cleanup = null;
 
 export async function mount(container, { setHeader }) {
@@ -24,12 +24,48 @@ export async function mount(container, { setHeader }) {
         </div>
       </form>
 
+      <div id="staging-controls-placeholder"></div>
       <div id="urun-list-placeholder"></div>
     </div>
   `;
 
   const form = container.querySelector('#urun-form');
+  const stagingPlaceholder = container.querySelector('#staging-controls-placeholder');
   const placeholder = container.querySelector('#urun-list-placeholder');
+
+  // Create staging controls
+  const stagingControls = createStagingControls('urun', {
+    onAddLocal: async () => {
+      clearFormErrors(form);
+      const fd = new FormData(form);
+      const data = Object.fromEntries(fd.entries());
+      data.aktif = !!form.querySelector('[name="aktif"]').checked;
+
+      const errors = [];
+      if (!data.urunKodu) errors.push({ field: 'urunKodu', msg: 'Ürün kodu gerekli' });
+      if (errors.length) { 
+        showFormErrors(form, errors); 
+        throw new Error('Form validation failed');
+      }
+
+      await window.api.stagingAdd('urun', data);
+      showToast('Ürün local\'e eklendi', 'success');
+      form.reset();
+      form.querySelector('[name="aktif"]').checked = true;
+      form.querySelector('[name="urunTipi"]').value = 'standart';
+    },
+    onUploadAll: async () => {
+      return await window.api.stagingUpload('urun');
+    },
+    onClearAll: async () => {
+      await window.api.stagingClear('urun');
+    },
+    refreshCallback: async () => {
+      await loadList();
+    }
+  });
+  
+  stagingPlaceholder.appendChild(stagingControls);
 
   async function submitHandler(e) {
     e.preventDefault();

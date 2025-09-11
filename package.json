@@ -1,7 +1,7 @@
 {
-  "name": "takip-admin",
-  "version": "0.1.0",
-  "description": "Electron admin panel with Uretim, Paketleme, Uretim-Paket Farkı, Siparişler screens",
+  "name": "arifk-takip-sistemi",
+  "version": "1.0.0",
+  "description": "arifk.co Takip Yönetim Sistemi - Üretim, Paketleme, Siparişler",
   "main": "main.js",
   "scripts": {
     "start": "electron ."
@@ -9,9 +9,10 @@
   "devDependencies": {
     "electron": "^26.0.0"
   },
-  "author": "",
+  "author": "arifk.co",
   "license": "MIT",
   "dependencies": {
+    "axios": "^1.11.0",
     "xlsx": "^0.18.5"
   }
 }

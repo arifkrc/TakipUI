@@ -1,4 +1,4 @@
-import { showToast, createRowCountSelector, createPaginationControls } from '../ui/helpers.js';
+import { showToast, createRowCountSelector, createPaginationControls, createStagingControls, showFormErrors, clearFormErrors } from '../ui/helpers.js';
 
 let _cleanup = null;
 
@@ -38,12 +38,49 @@ export async function mount(container, { setHeader }) {
         </div>
       </form>
 
+      <div id="staging-controls-placeholder"></div>
       <div id="paketleme-list-placeholder"></div>
     </div>
   `;
 
   const form = container.querySelector('#paketleme-form');
+  const stagingPlaceholder = container.querySelector('#staging-controls-placeholder');
   const placeholder = container.querySelector('#paketleme-list-placeholder');
+
+  // Create staging controls
+  const stagingControls = createStagingControls('paketleme', {
+    onAddLocal: async () => {
+      clearFormErrors(form);
+      const data = Object.fromEntries(new FormData(form).entries());
+      ['adet', 'fire', 'patlatilanKutu'].forEach(k => { 
+        if (data[k] !== undefined) data[k] = Number(data[k]) || 0; 
+      });
+
+      const errors = [];
+      if (!data.tarih) errors.push({ field: 'tarih', msg: 'Tarih gerekli' });
+      if (!data.urunKodu) errors.push({ field: 'urunKodu', msg: 'Ürün kodu girin' });
+      if (errors.length) { 
+        showFormErrors(form, errors); 
+        throw new Error('Form validation failed');
+      }
+
+      await window.api.stagingAdd('paketleme', data);
+      showToast('Paketleme local\'e eklendi', 'success');
+      form.reset();
+      setDefaultDate();
+    },
+    onUploadAll: async () => {
+      return await window.api.stagingUpload('paketleme');
+    },
+    onClearAll: async () => {
+      await window.api.stagingClear('paketleme');
+    },
+    refreshCallback: async () => {
+      await loadList();
+    }
+  });
+  
+  stagingPlaceholder.appendChild(stagingControls);
 
   function setDefaultDate() {
     const dateInput = form.querySelector('[name="tarih"]');
