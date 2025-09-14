@@ -84,6 +84,10 @@ window.addEventListener('hashchange', () => {
 window.addEventListener('DOMContentLoaded', async () => {
   // login logic
   const isLoggedIn = localStorage.getItem('isLoggedIn') === '1';
+  console.log('🔐 LOGIN CHECK:');
+  console.log('localStorage isLoggedIn:', localStorage.getItem('isLoggedIn'));
+  console.log('isLoggedIn boolean:', isLoggedIn);
+  
   if (!isLoggedIn) {
     // hide tabs
     if (tabsContainer) tabsContainer.style.display = 'none';
