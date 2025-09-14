@@ -2,6 +2,91 @@ import { createSimpleTable } from '../simple-table.js';
 
 // Çevrim Zamanları tablosu konfigürasyonu
 export function createCycleTimesTable(apiBaseUrl) {
+  
+  // Operasyon listesini dropdown'a yükle (direkt API'den)
+  async function loadOperationsToSelect(selectElement, apiBaseUrl) {
+    try {
+      console.log('📡 Fetching operations directly from API...');
+      console.log('🔗 API Base URL:', apiBaseUrl);
+      console.log('🎯 Full endpoint URL:', `${apiBaseUrl}/Operations`);
+      
+      const response = await fetch(`${apiBaseUrl}/Operations`);
+      
+      console.log('📊 Response status:', response.status);
+      console.log('📊 Response ok:', response.ok);
+      
+      if (!response.ok) {
+        console.error('❌ HTTP Error:', response.status, response.statusText);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      console.log('📦 Raw API response:', result);
+      
+      // Response format handling
+      let operations = [];
+      if (Array.isArray(result)) {
+        operations = result;
+      } else if (result.success && result.data) {
+        operations = result.data;
+      } else if (result.data) {
+        operations = result.data;
+      } else {
+        console.warn('Unexpected operations API response:', result);
+        operations = [];
+      }
+      
+      console.log(`✅ Loaded ${operations.length} operations from API`);
+      
+      // Dropdown'u populate et
+      console.log(`🔧 Populating dropdown with ${operations.length} operations`);
+      
+      // Mevcut seçimi koru
+      const currentOperationId = selectElement.getAttribute('data-current-operation-id');
+      const currentOperationName = selectElement.getAttribute('data-current-operation-name');
+      
+      // Dropdown'u temizle ve placeholder ekle
+      selectElement.innerHTML = '<option value="" disabled>Operasyon seçiniz...</option>';
+      
+      // Operasyonları ekle
+      operations.forEach(op => {
+        const option = document.createElement('option');
+        option.value = op.id;
+        option.textContent = `${op.shortCode || 'N/A'} - ${op.name || 'Unnamed'}`;
+        
+        // Mevcut operasyonu seçili yap
+        if (op.id == currentOperationId) {
+          option.selected = true;
+          console.log(`✅ Current operation selected: ${op.shortCode} - ${op.name}`);
+        }
+        
+        selectElement.appendChild(option);
+      });
+      
+      // Eğer mevcut operasyon listede yoksa, onu da ekle
+      if (currentOperationId && currentOperationName && !operations.find(op => op.id == currentOperationId)) {
+        const currentOption = document.createElement('option');
+        currentOption.value = currentOperationId;
+        currentOption.textContent = currentOperationName;
+        currentOption.selected = true;
+        currentOption.className = 'text-yellow-400'; // Görsel olarak farklı göster
+        selectElement.appendChild(currentOption);
+        console.log(`⚠️ Added missing current operation: ${currentOperationName}`);
+      }
+      
+      console.log(`✅ Dropdown populated with ${selectElement.options.length - 1} operations`);
+      
+    } catch (error) {
+      console.error('❌ Operations load error:', error);
+      selectElement.innerHTML = '<option value="" disabled>Operasyon yüklenemedi</option>';
+    }
+  }
+  
+  // Global access için fonksiyonu window'a ekle
+  if (typeof window !== 'undefined') {
+    window.loadOperationsToSelect = loadOperationsToSelect;
+  }
+
   return createSimpleTable({
     apiBaseUrl,
     endpoints: {
@@ -11,227 +96,208 @@ export function createCycleTimesTable(apiBaseUrl) {
       update: '/CycleTimes/{id}'
     },
     columns: [
-      {
-        field: 'operationShortCode',
-        header: 'Operasyon Kodu',
-        className: 'font-mono',
-        editable: false
+      { 
+        field: 'productCode', 
+        title: 'Ürün Kodu', 
+        editable: false,
+        width: '150px'
       },
-      {
-        field: 'operationName',
-        header: 'Operasyon Adı',
-        editable: true
+      { 
+        field: 'productName', 
+        title: 'Ürün Adı', 
+        editable: false,
+        width: '200px'
       },
-      {
-        field: 'productCode',
-        header: 'Ürün Kodu',
-        className: 'font-mono',
-        editable: false
+      { 
+        field: 'operationShortCode', 
+        title: 'Op. Kodu', 
+        editable: false,
+        width: '100px'
       },
-      {
-        field: 'productName',
-        header: 'Ürün Adı',
-        editable: false
+      { 
+        field: 'operationName', 
+        title: 'Operasyon', 
+        editable: true,
+        width: '250px'
       },
-      {
-        field: 'second',
-        header: 'Süre (Saniye)',
-        className: 'text-right font-mono',
-        editable: true
+      { 
+        field: 'second', 
+        title: 'Süre (sn)', 
+        editable: true,
+        width: '120px'
       },
-      {
-        field: 'addedDateTime',
-        header: 'Eklenme',
-        className: 'text-neutral-400 text-xs',
-        editable: false
+      { 
+        field: 'isActive', 
+        title: 'Durum', 
+        editable: false,
+        width: '100px'
       }
     ],
     searchFields: ['operationShortCode', 'operationName', 'productCode', 'productName', 'second'],
     title: 'Çevrim Zamanları',
+    emptyMessage: 'Çevrim zamanı kaydı bulunamadı',
     
-    // Çevrim zamanlarına özel hücre render
+    // Custom cell renderer - Backend verilerini direkt kullan
     renderCell: (value, record, column) => {
-      if (column.field === 'second') {
-        // Saniyeyi dakika:saniye formatında göster
-        const minutes = Math.floor(value / 60);
-        const seconds = value % 60;
-        const timeDisplay = minutes > 0 
-          ? `${minutes}:${seconds.toString().padStart(2, '0')}` 
-          : `${seconds}s`;
-        return `<span class="font-mono">${value}s</span> <span class="text-neutral-400 text-xs">(${timeDisplay})</span>`;
+      // İsActive için özel durum
+      if (column.field === 'isActive') {
+        const isActive = record.isActive;
+        return isActive ? 
+          '<span class="px-2 py-1 text-xs rounded bg-green-700 text-green-100">Aktif</span>' :
+          '<span class="px-2 py-1 text-xs rounded bg-red-700 text-red-100">Pasif</span>';
       }
       
-      if (column.field === 'addedDateTime') {
-        if (value) {
-          try {
-            const date = new Date(value);
-            
-            // Geçersiz tarih kontrolü
-            if (isNaN(date.getTime())) {
-              console.warn('Invalid date value:', value);
-              return `<span class="text-neutral-500">${value}</span>`;
-            }
-            
-            // Sadece tarih formatı: DD.MM.YYYY HH:mm
-            const formatted = date.toLocaleDateString('tr-TR', {
-              day: '2-digit',
-              month: '2-digit', 
-              year: 'numeric'
-            }) + ' ' + date.toLocaleTimeString('tr-TR', {
-              hour: '2-digit',
-              minute: '2-digit'
-            });
-            
-            return `<span class="text-neutral-400 text-xs">${formatted}</span>`;
-          } catch (error) {
-            console.error('Date formatting error:', error, 'for value:', value);
-            return `<span class="text-neutral-500">${value}</span>`;
-          }
-        }
-        return '<span class="text-neutral-500">-</span>';
+      // Second için özel durum
+      if (column.field === 'second') {
+        const seconds = record.second || 0;
+        return `${seconds} sn`;
       }
       
-      return value || '-';
-    },
-    
-    // Düzenleme için özel input oluşturma
-    createEditInput: (value, record, column) => {
-      if (column.field === 'second') {
-        return `<input type="number" value="${value || ''}" min="1" max="86400" class="w-full px-2 py-1 bg-neutral-700 rounded text-xs text-right font-mono" placeholder="Saniye">`;
+      // Diğer field'lar için direkt record'dan al
+      if (column.field === 'productCode') {
+        return record.productCode || '-';
+      }
+      
+      if (column.field === 'productName') {
+        return record.productName || '-';
+      }
+      
+      if (column.field === 'operationShortCode') {
+        return record.operationShortCode || '-';
       }
       
       if (column.field === 'operationName') {
-        // Operasyon dropdown'u için placeholder - gerçek options runtime'da yüklenecek
-        return `<select class="w-full px-2 py-1 bg-neutral-700 rounded text-xs operation-select" data-current-operation-id="${record.operationId || ''}" data-current-operation-name="${record.operationName || ''}">
-          <option value="">Operasyon seçiniz...</option>
+        return record.operationName || '-';
+      }
+      
+      // Fallback: record'dan field'ı direkt al
+      const fieldValue = record[column.field];
+      return fieldValue !== undefined && fieldValue !== null ? fieldValue : '-';
+    },
+    
+    // Custom edit input creator
+    createEditInput: (value, record, column) => {
+      if (column.field === 'operationName') {
+        return `<select 
+          data-field="${column.field}" 
+          name="${column.field}"
+          data-current-operation-id="${record.operationId}"
+          data-current-operation-name="${record.operationName}"
+          class="w-full px-2 py-1 border rounded bg-gray-800 border-gray-600 text-white">
+          <option value="" disabled>Yükleniyor...</option>
         </select>`;
       }
       
-      return `<input type="text" value="${value || ''}" class="w-full px-2 py-1 bg-neutral-700 rounded text-xs">`;
+      if (column.field === 'second') {
+        return `<input type="number" 
+          data-field="${column.field}" 
+          value="${value || ''}" 
+          min="0" 
+          step="0.1"
+          class="w-full px-2 py-1 border rounded bg-gray-800 border-gray-600 text-white" />`;
+      }
+      
+      return `<input type="text" 
+        data-field="${column.field}" 
+        value="${value || ''}" 
+        class="w-full px-2 py-1 border rounded bg-gray-800 border-gray-600 text-white" />`;
     },
     
-    // Row data validation
+    // Row validation
     validateRowData: (data) => {
       const errors = [];
       
-      if (!data.second || data.second <= 0) {
-        errors.push({ field: 'second', msg: 'Çevrim süresi pozitif bir sayı olmalıdır' });
-      } else if (data.second > 86400) { // 24 saat = 86400 saniye
-        errors.push({ field: 'second', msg: 'Çevrim süresi 24 saati geçemez' });
+      if (!data.second || parseFloat(data.second) <= 0) {
+        errors.push('Süre 0\'dan büyük olmalıdır');
+      }
+      
+      if (!data.operationName) {
+        errors.push('Operasyon seçilmeli');
       }
       
       return {
         isValid: errors.length === 0,
-        errors: errors
+        errors
       };
     },
     
-    // Çevrim zamanları için özel validasyon (deprecated - validateRowData kullanılacak)
+    // Record validation for backend
     validateRecord: (data) => {
       const errors = [];
       
-      if (!data.operationId || data.operationId <= 0) {
-        errors.push({ field: 'operationId', msg: 'Operasyon seçimi zorunludur' });
+      if (!data.productCode) {
+        errors.push({ field: 'productCode', msg: 'Ürün kodu gerekli' });
       }
       
-      if (!data.productCode || data.productCode.trim().length < 3) {
-        errors.push({ field: 'productCode', msg: 'Ürün kodu en az 3 karakter olmalıdır' });
+      if (!data.operationId) {
+        errors.push({ field: 'operationId', msg: 'Operasyon gerekli' });
       }
       
-      if (!data.second || data.second <= 0) {
-        errors.push({ field: 'second', msg: 'Çevrim süresi pozitif bir sayı olmalıdır' });
-      } else if (data.second > 86400) { // 24 saat = 86400 saniye
-        errors.push({ field: 'second', msg: 'Çevrim süresi 24 saati geçemez' });
+      if (!data.second || parseFloat(data.second) <= 0) {
+        errors.push({ field: 'second', msg: 'Süre 0\'dan büyük olmalıdır' });
       }
       
-      return errors;
+      return {
+        isValid: errors.length === 0,
+        errors
+      };
     },
     
-    // Düzenleme modalında özel alanlar
+    // Define editable fields for the table
     getEditFields: () => [
-      {
-        name: 'operationId',
-        label: 'Operasyon',
-        type: 'select',
-        required: true,
-        options: [], // Runtime'da doldurulacak
-        optionsLoader: async () => {
-          try {
-            const response = await fetch(`${apiBaseUrl}/Operations`);
-            const result = await response.json();
-            if (result.success && result.data) {
-              return result.data.map(op => ({
-                value: op.id,
-                label: `${op.shortCode} - ${op.name}`
-              }));
-            }
-          } catch (error) {
-            console.error('Operations load error:', error);
-          }
-          return [];
-        }
-      },
-      {
-        name: 'productCode',
-        label: 'Ürün Kodu',
-        type: 'text',
-        required: true,
-        placeholder: 'Ürün kodunu girin'
-      },
-      {
-        name: 'second',
-        label: 'Çevrim Süresi (Saniye)',
-        type: 'number',
-        required: true,
-        min: 1,
-        max: 86400,
-        placeholder: 'Saniye cinsinden girin'
-      }
+      'operationName',
+      'second'
     ],
     
-    // Özel güncelleme handler'ı
+    // Custom update handler
     customUpdateHandler: async (recordId, editableFields, originalRecord, apiBaseUrl, showToast, reloadData) => {
       try {
-        // Düzenlenebilir alanlardan veri al
-        const newData = {};
-        let operationId = originalRecord.operationId; // Varsayılan
+        console.log('🔄 CycleTimes UPDATE - Record ID:', recordId);
+        console.log('🔄 CycleTimes UPDATE - Editable Fields:', editableFields);
+        console.log('🔄 CycleTimes UPDATE - Original Record:', originalRecord);
         
-        // Operasyon seçimi kontrolü
+        // Form verilerini hazırla
         const operationSelect = editableFields.operationName;
-        if (operationSelect && operationSelect.tagName === 'SELECT') {
-          // Önce operasyon listesini yükle
-          await loadOperationsToSelect(operationSelect, apiBaseUrl);
-          
-          const selectedOperationId = parseInt(operationSelect.value);
-          if (selectedOperationId && selectedOperationId > 0) {
-            operationId = selectedOperationId;
+        const secondInput = editableFields.second;
+        
+        // Operasyon bilgilerini çıkar
+        let operationId = null;
+        let operationName = '';
+        let operationShortCode = '';
+        
+        if (operationSelect && operationSelect.value) {
+          operationId = operationSelect.value;
+          const selectedOption = operationSelect.options[operationSelect.selectedIndex];
+          if (selectedOption) {
+            operationName = selectedOption.textContent;
+            operationShortCode = selectedOption.textContent.split(' - ')[0];
           }
         }
         
-        // Second field
-        if (editableFields.second) {
-          const secondValue = parseInt(editableFields.second.value);
-          if (secondValue && secondValue > 0) {
-            newData.second = secondValue;
-          }
-        }
-        
-        // API payload (belirtilen format)
-        const payload = {
+        const updateData = {
+          id: recordId,
+          productId: originalRecord.productId,
+          productCode: originalRecord.productCode,
+          productName: originalRecord.productName,
           operationId: operationId,
-          productId: originalRecord.productId || 1, // Mevcut productId'yi koru
-          second: newData.second || originalRecord.second
+          operationName: operationName,
+          operationShortCode: operationShortCode,
+          second: parseFloat(secondInput.value) || 0,
+          isActive: originalRecord.isActive
         };
         
-        console.log('🔄 CycleTimes UPDATE REQUEST');
-        console.log('🔗 PUT URL:', `${apiBaseUrl}/CycleTimes/${recordId}`);
-        console.log('📤 PUT PAYLOAD:', JSON.stringify(payload, null, 2));
+        console.log('📤 CycleTimes UPDATE - Data being sent:', updateData);
         
+        // API'ye PUT request gönder
         const response = await fetch(`${apiBaseUrl}/CycleTimes/${recordId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(updateData)
         });
+        
+        console.log('📊 CycleTimes UPDATE - Response status:', response.status);
         
         if (!response.ok) {
           const errorText = await response.text();
@@ -253,53 +319,4 @@ export function createCycleTimesTable(apiBaseUrl) {
       }
     }
   });
-  
-  // Operasyon listesini dropdown'a yükle
-  async function loadOperationsToSelect(selectElement, apiBaseUrl) {
-    try {
-      const response = await fetch(`${apiBaseUrl}/Operations`);
-      const result = await response.json();
-      
-      let operations = [];
-      if (Array.isArray(result)) {
-        operations = result;
-      } else if (result.success && result.data) {
-        operations = result.data;
-      } else if (result.data) {
-        operations = result.data;
-      }
-      
-      // Mevcut seçimi koru
-      const currentOperationId = selectElement.getAttribute('data-current-operation-id');
-      const currentOperationName = selectElement.getAttribute('data-current-operation-name');
-      
-      selectElement.innerHTML = '<option value="">Operasyon seçiniz...</option>';
-      
-      operations.forEach(op => {
-        const option = document.createElement('option');
-        option.value = op.id;
-        option.textContent = `${op.shortCode} - ${op.name}`;
-        
-        // Mevcut operasyonu seçili yap
-        if (op.id == currentOperationId) {
-          option.selected = true;
-        }
-        
-        selectElement.appendChild(option);
-      });
-      
-      // Eğer mevcut operasyon listede yoksa, onu da ekle
-      if (currentOperationId && currentOperationName && !operations.find(op => op.id == currentOperationId)) {
-        const currentOption = document.createElement('option');
-        currentOption.value = currentOperationId;
-        currentOption.textContent = currentOperationName;
-        currentOption.selected = true;
-        selectElement.appendChild(currentOption);
-      }
-      
-    } catch (error) {
-      console.error('Operations load error:', error);
-      selectElement.innerHTML = '<option value="">Operasyon yüklenemedi</option>';
-    }
-  }
 }

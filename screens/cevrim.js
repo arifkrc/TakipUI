@@ -320,6 +320,31 @@ export async function mount(container, { setHeader }) {
         return true;
       } catch (err) {
         console.error('❌ Cycle time save error:', err);
+        
+        // 409 Conflict - Aynı ürün-operasyon kombinasyonu mevcut
+        if (err.status === 409 || (err.response && err.response.status === 409)) {
+          const conflictData = err.response?.data || err.data || {};
+          const message = conflictData.message || 'Bu ürün-operasyon kombinasyonu zaten mevcut';
+          
+          console.log('⚠️ Conflict detected:', conflictData);
+          
+          // Kullanıcıya güncelleme seçeneği sun
+          const shouldUpdate = await showConflictDialog(
+            processedFormData, 
+            message,
+            conflictData.errors || []
+          );
+          
+          if (shouldUpdate) {
+            // Mevcut kaydı güncelle
+            await updateExistingRecord(processedFormData);
+            return true;
+          }
+          
+          return false;
+        }
+        
+        // Diğer hatalar
         const errorMessage = err.response?.data?.message || err.message || 'Bilinmeyen hata';
         showToast('Kaydetme hatası: ' + errorMessage, 'error');
         return false;
@@ -334,6 +359,143 @@ export async function mount(container, { setHeader }) {
     productNameDisplay.className = 'text-xs text-neutral-400 mt-1 min-h-4';
     foundProductId = null;
   });
+
+  // Conflict dialog - Kullanıcıya güncelleme seçeneği sun
+  async function showConflictDialog(formData, message, errors) {
+    return new Promise((resolve) => {
+      // Modal overlay oluştur
+      const overlay = document.createElement('div');
+      overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+      
+      // Modal content
+      const modal = document.createElement('div');
+      modal.className = 'bg-neutral-800 rounded-lg p-6 max-w-md mx-4 text-white';
+      
+      // Operasyon ve ürün bilgileri
+      const operationName = container.querySelector('[name="operationId"] option:checked')?.textContent || 'Bilinmeyen Operasyon';
+      const productCode = formData.productCode;
+      const productName = container.querySelector('#product-name-display')?.textContent || '';
+      const newSeconds = formData.second;
+      
+      modal.innerHTML = `
+        <div class="mb-4">
+          <h3 class="text-lg font-semibold text-yellow-400 mb-2">⚠️ Çevrim Zamanı Zaten Mevcut</h3>
+          <div class="text-sm text-neutral-300 space-y-1">
+            <p><strong>Ürün:</strong> ${productCode} - ${productName}</p>
+            <p><strong>Operasyon:</strong> ${operationName}</p>
+            <p><strong>Yeni Süre:</strong> ${newSeconds} saniye</p>
+          </div>
+        </div>
+        
+        <div class="mb-4 text-sm text-neutral-400">
+          <p>${message}</p>
+          ${errors.length > 0 ? `<ul class="mt-2 list-disc list-inside">${errors.map(e => `<li>${e}</li>`).join('')}</ul>` : ''}
+        </div>
+        
+        <div class="mb-4 p-3 bg-blue-900 bg-opacity-50 rounded text-sm">
+          <p class="text-blue-300"><strong>💡 Seçenekler:</strong></p>
+          <p>• <strong>Güncelle:</strong> Mevcut çevrim zamanını yeni değerle günceller</p>
+          <p>• <strong>İptal:</strong> Değişiklik yapmadan geri döner</p>
+        </div>
+        
+        <div class="flex gap-2 justify-end">
+          <button id="conflict-cancel" class="px-4 py-2 bg-neutral-600 hover:bg-neutral-500 rounded text-sm">İptal</button>
+          <button id="conflict-update" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm">🔄 Güncelle</button>
+        </div>
+      `;
+      
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      
+      // Event listeners
+      modal.querySelector('#conflict-cancel').addEventListener('click', () => {
+        document.body.removeChild(overlay);
+        resolve(false);
+      });
+      
+      modal.querySelector('#conflict-update').addEventListener('click', () => {
+        document.body.removeChild(overlay);
+        resolve(true);
+      });
+      
+      // ESC key ile kapatma
+      const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+          document.body.removeChild(overlay);
+          document.removeEventListener('keydown', handleEscape);
+          resolve(false);
+        }
+      };
+      document.addEventListener('keydown', handleEscape);
+    });
+  }
+  
+  // Mevcut kaydı güncelle
+  async function updateExistingRecord(formData) {
+    try {
+      console.log('🔄 Updating existing cycle time record');
+      
+      // Önce mevcut kaydı bul
+      const existingRecord = await findExistingRecord(formData.operationId, foundProductId);
+      
+      if (!existingRecord) {
+        showToast('Güncellenecek kayıt bulunamadı', 'error');
+        return false;
+      }
+      
+      // PUT request ile güncelle
+      const updatePayload = {
+        operationId: parseInt(formData.operationId),
+        productId: parseInt(foundProductId),
+        second: parseInt(formData.second)
+      };
+      
+      console.log('📤 Updating cycle time:', existingRecord.id, updatePayload);
+      
+      const result = await apiClient.put(`/CycleTimes/${existingRecord.id}`, updatePayload);
+      
+      if (result.success) {
+        console.log('✅ Cycle time updated successfully');
+        showToast('Çevrim zamanı başarıyla güncellendi', 'success');
+        
+        // Formu temizle
+        form.reset();
+        productNameDisplay.textContent = '';
+        foundProductId = null;
+        
+        // Tabloyu yenile
+        await dataTable.reload();
+        return true;
+      } else {
+        throw new Error(result.error || 'Güncelleme başarısız');
+      }
+      
+    } catch (error) {
+      console.error('❌ Update error:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Güncelleme hatası';
+      showToast('Güncelleme hatası: ' + errorMessage, 'error');
+      return false;
+    }
+  }
+  
+  // Mevcut kaydı bul
+  async function findExistingRecord(operationId, productId) {
+    try {
+      const result = await apiClient.get('/CycleTimes');
+      if (result.success && result.data) {
+        const records = Array.isArray(result.data) ? result.data : (result.data.data || []);
+        return records.find(r => 
+          r.operationId == operationId && 
+          r.productId == productId && 
+          r.isActive !== false
+        );
+      }
+      return null;
+    } catch (error) {
+      console.error('Error finding existing record:', error);
+      return null;
+    }
+  }
 
   // Table data manipulation helper function
   async function addRecordToTable(newRecord, formData) {
@@ -405,7 +567,7 @@ export async function mount(container, { setHeader }) {
   _cleanup = () => {
     try { 
       formManager.destroy();
-      eventContext.destroy();
+      eventContext.removeAll();
       destroyContext('cycle-times-form');
       
       // Cache'i temizle

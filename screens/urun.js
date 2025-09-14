@@ -109,7 +109,7 @@ export async function mount(container, { setHeader }) {
   _cleanup = () => {
     try { 
       formManager.destroy();
-      eventContext.destroy();
+      eventContext.removeAll();
       destroyContext('product-form');
       container.innerHTML = ''; 
     } catch(e) {

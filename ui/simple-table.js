@@ -296,7 +296,8 @@ export function createSimpleTable(config) {
     `;
 
     columns.forEach(col => {
-      tableHTML += `<th class="px-4 py-3 text-left text-xs font-bold text-neutral-300 uppercase tracking-wider ${col.className || ''}">${col.header}</th>`;
+      const headerText = col.title || col.header || col.field || 'N/A';
+      tableHTML += `<th class="px-4 py-3 text-left text-xs font-bold text-neutral-300 uppercase tracking-wider ${col.className || ''}">${headerText}</th>`;
     });
 
     tableHTML += `
@@ -392,7 +393,34 @@ export function createSimpleTable(config) {
         
         const inputHTML = createEditInput(originalValue, record, col);
         cell.innerHTML = inputHTML;
-        editableFields[col.field] = cell.querySelector('input, select, textarea');
+        const inputElement = cell.querySelector('input, select, textarea');
+        editableFields[col.field] = inputElement;
+        
+        // Operasyon dropdown'u için özel işlem
+        if (col.field === 'operationName' && inputElement && inputElement.tagName === 'SELECT') {
+          console.log('🔧 Loading operations for editing dropdown...');
+          
+          // Current operation data attributes'ları set et
+          const currentOperationId = record.operationId || record.id;
+          const currentOperationName = record.operationName || record.name;
+          
+          if (currentOperationId) {
+            inputElement.setAttribute('data-current-operation-id', currentOperationId);
+          }
+          if (currentOperationName) {
+            inputElement.setAttribute('data-current-operation-name', currentOperationName);
+          }
+          
+          // Global loadOperationsToSelect fonksiyonunu kullan
+          if (typeof window.loadOperationsToSelect === 'function') {
+            window.loadOperationsToSelect(inputElement, apiBaseUrl)
+              .then(() => console.log('✅ Operations loaded via global function'))
+              .catch(error => console.error('❌ Error loading operations:', error));
+          } else {
+            console.warn('⚠️ Global loadOperationsToSelect function not available');
+            inputElement.innerHTML = '<option value="" disabled>Operasyon yüklenemedi</option>';
+          }
+        }
       }
     });
 
@@ -506,6 +534,7 @@ export function createSimpleTable(config) {
     }
   }
 
+  // Operasyon dropdown'u için fallback yükleme fonksiyonu
   // Public API
   container.init = async () => {
     initializeComponents();
