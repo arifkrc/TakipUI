@@ -25,6 +25,10 @@ export const API_CONFIG = {
     OPERATIONS_DEACTIVATE: '/Operations/{id}/deactivate',
     OPERATIONS_TYPES: '/OperationType',
     
+    // Cycle Times
+    CYCLE_TIMES: '/CycleTimes',
+    CYCLE_TIMES_BY_ID: '/CycleTimes/{id}',
+    
     // Other endpoints (future)
     PRODUCTION: '/uretim',
     PACKAGING: '/paketleme',

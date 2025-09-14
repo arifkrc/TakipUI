@@ -110,6 +110,14 @@ export function createSimpleTable(config) {
     
     const controlsDiv = document.createElement('div');
     controlsDiv.className = 'flex items-center gap-2';
+    
+    // Refresh button
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 text-sm text-white';
+    refreshBtn.innerHTML = '🔄 Yenile';
+    refreshBtn.title = 'Tabloyu backend\'den yeniden yükle';
+    controlsDiv.appendChild(refreshBtn);
+    
     controlsDiv.appendChild(selectorWrap);
     controlsDiv.appendChild(searchWrap);
     topRow.appendChild(controlsDiv);
@@ -161,6 +169,13 @@ export function createSimpleTable(config) {
       console.log('📊 Show inactive changed:', showInactive);
       loadData(); // Yeni API isteği at
     });
+    
+    // Refresh button
+    refreshBtn.addEventListener('click', async () => {
+      console.log('🔄 Manual table refresh requested');
+      await loadData();
+      showToast('Tablo yenilendi', 'success');
+    });
   }
 
   // Load data from API
@@ -170,6 +185,18 @@ export function createSimpleTable(config) {
       const statusParam = showInactive ? 'all' : 'active';
       const url = `${apiBaseUrl}${endpoints.list}?status=${statusParam}`;
       console.log('📡 Loading data from:', url, '(Show inactive:', showInactive, ')');
+
+      // Backend connectivity testi
+      try {
+        const testResponse = await fetch(apiBaseUrl.replace('/api', '/health'), { 
+          method: 'GET',
+          timeout: 5000
+        });
+        console.log('🏥 Backend health check:', testResponse.status);
+      } catch (healthError) {
+        console.warn('⚠️ Backend health check failed:', healthError.message);
+        console.warn('💡 Backend server çalışıyor mu? Port 7287 dinleniyor mu?');
+      }
 
       const response = await fetch(url, {
         method: 'GET',
@@ -181,7 +208,21 @@ export function createSimpleTable(config) {
       }
 
       const result = await response.json();
-      allRecords = result?.data || [];
+      
+      // API response format handling
+      let records = [];
+      if (Array.isArray(result)) {
+        records = result;
+      } else if (result?.data && Array.isArray(result.data)) {
+        records = result.data;
+      } else if (result?.success && result?.data && Array.isArray(result.data)) {
+        records = result.data;
+      } else {
+        console.warn('Unexpected API response format:', result);
+        records = [];
+      }
+      
+      allRecords = records;
       
       console.log('✅ Data loaded:', allRecords.length, 'records');
       onDataLoaded(allRecords);
@@ -189,7 +230,33 @@ export function createSimpleTable(config) {
 
     } catch (err) {
       console.error('❌ LOAD DATA ERROR:', err);
-      tableContainer.innerHTML = `<div class="text-center py-8 text-rose-400">Veri yüklenirken hata: ${err.message}</div>`;
+      
+      // Hata tipine göre özel mesajlar
+      let errorMessage = 'Veri yüklenirken hata oluştu';
+      let troubleshooting = '';
+      
+      if (err.message.includes('Failed to fetch') || err.name === 'TypeError') {
+        errorMessage = 'Backend sunucusuna bağlanılamıyor';
+        troubleshooting = '🔧 Kontrol edin: Backend server çalışıyor mu? (localhost:7287)';
+      } else if (err.message.includes('ERR_EMPTY_RESPONSE')) {
+        errorMessage = 'Sunucu boş yanıt döndürdü';
+        troubleshooting = '🔧 Kontrol edin: API endpoint\'i doğru mu?';
+      } else if (err.message.includes('CORS')) {
+        errorMessage = 'CORS hatası';
+        troubleshooting = '🔧 Kontrol edin: Backend CORS ayarları';
+      }
+      
+      console.error('🚨 ERROR TYPE:', err.name);
+      console.error('📝 ERROR MESSAGE:', err.message);
+      console.error('🔧 TROUBLESHOOTING:', troubleshooting);
+      
+      tableContainer.innerHTML = `
+        <div class="text-center py-8">
+          <div class="text-rose-400 mb-2">${errorMessage}</div>
+          <div class="text-neutral-500 text-sm">${err.message}</div>
+          ${troubleshooting ? `<div class="text-yellow-400 text-sm mt-2">${troubleshooting}</div>` : ''}
+        </div>
+      `;
     }
   }
 
@@ -225,11 +292,11 @@ export function createSimpleTable(config) {
       <table class="w-full bg-neutral-800 rounded-lg overflow-hidden">
         <thead class="bg-neutral-700">
           <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-neutral-300 uppercase tracking-wider w-32">İşlemler</th>
+            <th class="px-4 py-3 text-left text-xs font-bold text-neutral-300 uppercase tracking-wider w-32">İşlemler</th>
     `;
 
     columns.forEach(col => {
-      tableHTML += `<th class="px-4 py-3 text-left text-xs font-medium text-neutral-300 uppercase tracking-wider ${col.className || ''}">${col.header}</th>`;
+      tableHTML += `<th class="px-4 py-3 text-left text-xs font-bold text-neutral-300 uppercase tracking-wider ${col.className || ''}">${col.header}</th>`;
     });
 
     tableHTML += `
@@ -446,6 +513,33 @@ export function createSimpleTable(config) {
   };
 
   container.reload = loadData;
+  
+  // Yeni kayıt ekleme (backend'e istek atmadan)
+  container.addRecord = (newRecord) => {
+    if (!newRecord || !newRecord.id) {
+      console.warn('⚠️ Invalid record for adding:', newRecord);
+      return;
+    }
+    
+    // Aktif kayıtları gösteriyorsak ve kayıt aktifse ekle
+    if (!showInactive && newRecord.isActive === false) {
+      console.log('📝 Record is inactive, not adding to active view');
+      return;
+    }
+    
+    // Kayıt zaten var mı kontrol et
+    const existingIndex = allRecords.findIndex(r => r.id == newRecord.id);
+    if (existingIndex !== -1) {
+      console.log('📝 Record already exists, updating:', newRecord.id);
+      allRecords[existingIndex] = newRecord;
+    } else {
+      console.log('📝 Adding new record:', newRecord.id);
+      allRecords.unshift(newRecord); // En başa ekle
+    }
+    
+    // Tabloyu yeniden render et
+    renderTable();
+  };
 
   return container;
 }

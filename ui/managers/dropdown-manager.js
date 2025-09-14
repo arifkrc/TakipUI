@@ -88,6 +88,11 @@ export class DropdownManager {
           ? `${APP_CONFIG.API.ENDPOINTS.OPERATIONS}?status=active`
           : APP_CONFIG.API.ENDPOINTS.OPERATIONS;
         
+        console.log('🔗 Operations API Request:');
+        console.log('   Base URL:', this.apiClient.baseURL);
+        console.log('   Endpoint:', endpoint);
+        console.log('   Full URL:', this.apiClient.baseURL + endpoint);
+        
         const response = await this.apiClient.get(endpoint);
         
         if (!response.success) {

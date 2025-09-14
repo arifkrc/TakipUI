@@ -202,10 +202,26 @@ export class ValidationEngine {
   async _executeRule(rule, value, fieldName, context) {
     let ruleName, params;
     
-    // Rule format: 'required' veya {rule: 'minLength', params: {min: 3}}
+    // Rule format: 'required', 'minLength:3' veya {rule: 'minLength', params: {min: 3}}
     if (typeof rule === 'string') {
-      ruleName = rule;
-      params = {};
+      // String parametreli format: 'minLength:3', 'maxLength:10' vs.
+      if (rule.includes(':')) {
+        const [name, paramStr] = rule.split(':');
+        ruleName = name;
+        
+        // Parametre parsing'i
+        if (name === 'minLength' || name === 'maxLength') {
+          const length = parseInt(paramStr);
+          params = name === 'minLength' ? { min: length } : { max: length };
+        } else if (name === 'min' || name === 'max') {
+          params = { [name]: parseFloat(paramStr) };
+        } else {
+          params = { value: paramStr };
+        }
+      } else {
+        ruleName = rule;
+        params = {};
+      }
     } else {
       ruleName = rule.rule;
       params = rule.params || {};
@@ -296,6 +312,19 @@ globalValidationEngine.defineSchema('operation', {
   operasyonAdi: ['required', { rule: 'maxLength', params: { max: 100 } }]
 });
 
+globalValidationEngine.defineSchema('cycleTime', {
+  operationId: ['required', 'numeric', 'positive'],
+  productCode: ['required', 'minLength:3'],
+  productId: ['numeric', 'positive'], // Runtime'da eklenen productId
+  second: ['required', 'numeric', 'positive', { rule: 'maxValue', params: { max: 86400 } }]
+});
+
+// Max value rule için
+globalValidationEngine.addRule('maxValue', {
+  validate: (value, params) => !value || Number(value) <= params.max,
+  message: (params) => `Değer en fazla ${params.max} olabilir`
+});
+
 // Business-specific validators
 globalValidationEngine.addCustomValidator('productCodeTypeMatch', 
   async (value, params, context, fieldName) => {
@@ -374,6 +403,12 @@ export async function validateOperation(operationData, options = {}) {
   }
 
   return await globalValidationEngine.validateObject(operationData, rules);
+}
+
+export async function validateCycleTime(cycleTimeData, options = {}) {
+  const rules = { ...globalValidationEngine.schemas.get('cycleTime') };
+  
+  return await globalValidationEngine.validateObject(cycleTimeData, rules);
 }
 
 // Quick validation helpers

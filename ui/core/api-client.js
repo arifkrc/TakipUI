@@ -6,8 +6,15 @@ export class ApiClient {
   constructor(baseUrl) {
     this.baseUrl = baseUrl;
     this.defaultHeaders = {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
     };
+    
+    // HTTPS localhost için SSL ignore
+    this.isHttps = baseUrl.startsWith('https://');
+    this.isLocalhost = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1');
+    
+    console.log(`🔧 ApiClient initialized: ${baseUrl} (HTTPS: ${this.isHttps}, Localhost: ${this.isLocalhost})`);
   }
 
   /**
@@ -129,6 +136,11 @@ export class ApiClient {
       headers: { ...this.defaultHeaders, ...(options.headers || {}) },
       ...options
     };
+
+    // HTTPS localhost için SSL ignore (Electron ortamında)
+    if (this.isHttps && this.isLocalhost && typeof window !== 'undefined' && window.process?.type === 'renderer') {
+      config.agent = false; // Electron renderer process'te agent kullanma
+    }
 
     // Body ekle (GET ve DELETE hariç)
     if (data && !['GET', 'HEAD'].includes(method)) {

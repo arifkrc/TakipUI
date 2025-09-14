@@ -96,7 +96,7 @@ export async function mount(container, { setHeader }) {
   _cleanup = () => {
     try { 
       formManager.destroy();
-      eventContext.cleanup();
+      eventContext.destroy(); // cleanup yerine destroy
       destroyContext('operation-form');
       container.innerHTML = ''; 
     } catch(e) {

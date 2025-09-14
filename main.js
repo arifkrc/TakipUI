@@ -3,12 +3,74 @@ const { ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const os = require('os');
 
-// API Configuration
-const API_BASE_URL = 'https://localhost:7287';
+// API Configuration - HTTPS backend için
+const API_BASE_URL = 'https://localhost:7287/api';
 
 // Configure axios to ignore self-signed certificates for localhost
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
+
+// HTTPS localhost için Axios SSL konfigürasyonu
+axios.defaults.httpsAgent = new (require('https').Agent)({
+  rejectUnauthorized: false,
+  checkServerIdentity: () => undefined
+});
+
+// Axios global ayarları
+axios.defaults.timeout = 10000; // 10 saniye timeout
+axios.defaults.headers.common['Accept'] = 'application/json';
+axios.defaults.headers.common['Content-Type'] = 'application/json';
+
+// Electron Cache Best Practices - Kalıcı Çözüm
+// path, fs, os zaten üstte tanımlandı
+
+// 1. Cache dizinini özel konuma taşı
+const customCacheDir = path.join(os.tmpdir(), 'arifk-takip-cache');
+try {
+  if (!fs.existsSync(customCacheDir)) {
+    fs.mkdirSync(customCacheDir, { recursive: true, mode: 0o777 });
+  }
+  app.setPath('userData', customCacheDir);
+  console.log('✅ Custom cache directory created:', customCacheDir);
+} catch (error) {
+  console.warn('⚠️ Cache directory setup warning:', error.message);
+}
+
+// 2. Windows cache problemleri için Chromium flags
+app.commandLine.appendSwitch('--disable-gpu-cache');
+app.commandLine.appendSwitch('--disk-cache-size', '1');
+app.commandLine.appendSwitch('--media-cache-size', '1');
+app.commandLine.appendSwitch('--disable-background-timer-throttling');
+app.commandLine.appendSwitch('--disable-renderer-backgrounding');
+app.commandLine.appendSwitch('--disable-backgrounding-occluded-windows');
+
+// 3. Performance vs Error balance
+app.commandLine.appendSwitch('--no-sandbox');
+app.commandLine.appendSwitch('--disable-dev-shm-usage');
+app.commandLine.appendSwitch('--disable-gpu-sandbox');
+
+// 4. Log level düşür (cache hatalarını gizle)
+app.commandLine.appendSwitch('--log-level', '2'); // Sadece FATAL hatalar
+
+// 5. Cache temizleme fonksiyonu
+function clearAppCache() {
+  try {
+    const session = require('electron').session;
+    if (session && session.defaultSession) {
+      session.defaultSession.clearCache();
+      session.defaultSession.clearStorageData();
+      console.log('✅ Cache cleared successfully');
+    }
+  } catch (error) {
+    console.warn('⚠️ Cache clear warning:', error.message);
+  }
+}
+
+// 6. Uygulama kapanırken cache temizle
+app.on('before-quit', () => {
+  clearAppCache();
+});
 
 function createWindow () {
   const win = new BrowserWindow({
@@ -19,14 +81,34 @@ function createWindow () {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false // SSL certificate sorununu çözmek için
-    }
+      webSecurity: false, // SSL certificate sorununu çözmek için
+      backgroundThrottling: false, // Background throttling'i kapat
+      offscreen: false, // Offscreen rendering'i kapat
+      enableRemoteModule: false, // Güvenlik için
+      spellcheck: false // Spell check'i kapat (performans)
+    },
+    show: false // Önce gizli başlat, ready olunca göster
   })
+
+  // Pencere hazır olduğunda göster
+  win.once('ready-to-show', () => {
+    win.show();
+    console.log('✅ Window is ready and shown');
+  });
 
   win.loadFile('index.html');
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Cache temizlemeyi kaldırdık - performans için
+  // try {
+  //   const { session } = require('electron');
+  //   await session.defaultSession.clearCache();
+  //   console.log('✅ Cache cleared successfully');
+  // } catch (error) {
+  //   console.warn('⚠️ Cache clear warning:', error.message);
+  // }
+
   createWindow();
 
   app.on('activate', function () {
@@ -84,7 +166,7 @@ ipcMain.handle('list-operasyon', async () => {
 // IPC handlers for products via API
 ipcMain.handle('save-product', async (event, record) => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/api/Products`, record);
+    const response = await axios.post(`${API_BASE_URL}/Products`, record);
     return { ok: true, data: response.data };
   } catch (err) {
     console.error('API Error (save-product):', err.message);
@@ -94,7 +176,7 @@ ipcMain.handle('save-product', async (event, record) => {
 
 ipcMain.handle('list-products', async () => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/api/Products`);
+    const response = await axios.get(`${API_BASE_URL}/Products`);
     return { ok: true, records: response.data };
   } catch (err) {
     console.error('API Error (list-products):', err.message);
@@ -302,5 +384,36 @@ ipcMain.handle('get-operation-types', async (_, onlyActive = false) => {
   } catch (err) {
     console.error('API Error (get-operation-types):', err.message);
     return { ok: false, error: err.response?.data?.message || err.message, operations: [] };
+  }
+});
+
+// Cycle Times API handlers
+ipcMain.handle('save-cycle-time', async (event, record) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/CycleTimes`, record);
+    return { ok: true, data: response.data };
+  } catch (err) {
+    console.error('API Error (save-cycle-time):', err.message);
+    return { ok: false, error: err.response?.data?.message || err.message };
+  }
+});
+
+ipcMain.handle('list-cycle-times', async () => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/CycleTimes`);
+    return { ok: true, records: response.data };
+  } catch (err) {
+    console.error('API Error (list-cycle-times):', err.message);
+    return { ok: false, error: err.response?.data?.message || err.message, records: [] };
+  }
+});
+
+ipcMain.handle('delete-cycle-time', async (event, id) => {
+  try {
+    const response = await axios.delete(`${API_BASE_URL}/CycleTimes/${id}`);
+    return { ok: true, removed: true };
+  } catch (err) {
+    console.error('API Error (delete-cycle-time):', err.message);
+    return { ok: false, error: err.response?.data?.message || err.message };
   }
 });
