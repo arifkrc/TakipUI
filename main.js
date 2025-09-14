@@ -60,48 +60,6 @@ ipcMain.handle('list-uretim', async () => {
   }
 });
 
-// IPC handlers for paketleme (packing) records via API
-ipcMain.handle('save-paketleme', async (event, record) => {
-  try {
-    const response = await axios.post(`${API_BASE_URL}/paketleme`, record);
-    return { ok: true, data: response.data };
-  } catch (err) {
-    console.error('API Error (save-paketleme):', err.message);
-    return { ok: false, error: err.response?.data?.message || err.message };
-  }
-});
-
-ipcMain.handle('list-paketleme', async () => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/paketleme`);
-    return { ok: true, records: response.data };
-  } catch (err) {
-    console.error('API Error (list-paketleme):', err.message);
-    return { ok: false, error: err.response?.data?.message || err.message, records: [] };
-  }
-});
-
-// IPC handlers for product (urun) records via API
-ipcMain.handle('save-urun', async (event, record) => {
-  try {
-    const response = await axios.post(`${API_BASE_URL}/urun`, record);
-    return { ok: true, data: response.data };
-  } catch (err) {
-    console.error('API Error (save-urun):', err.message);
-    return { ok: false, error: err.response?.data?.message || err.message };
-  }
-});
-
-ipcMain.handle('list-urun', async () => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/urun`);
-    return { ok: true, records: response.data };
-  } catch (err) {
-    console.error('API Error (list-urun):', err.message);
-    return { ok: false, error: err.response?.data?.message || err.message, records: [] };
-  }
-});
-
 // IPC handlers for operasyon (operations) records via API
 ipcMain.handle('save-operasyon', async (event, record) => {
   try {
@@ -123,180 +81,24 @@ ipcMain.handle('list-operasyon', async () => {
   }
 });
 
-// IPC handlers for siparis (orders) via API
-ipcMain.handle('save-siparis', async (event, record) => {
+// IPC handlers for products via API
+ipcMain.handle('save-product', async (event, record) => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/siparis`, record);
+    const response = await axios.post(`${API_BASE_URL}/api/Products`, record);
     return { ok: true, data: response.data };
   } catch (err) {
-    console.error('API Error (save-siparis):', err.message);
+    console.error('API Error (save-product):', err.message);
     return { ok: false, error: err.response?.data?.message || err.message };
   }
 });
 
-ipcMain.handle('list-siparis', async () => {
+ipcMain.handle('list-products', async () => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/siparis`);
+    const response = await axios.get(`${API_BASE_URL}/api/Products`);
     return { ok: true, records: response.data };
   } catch (err) {
-    console.error('API Error (list-siparis):', err.message);
+    console.error('API Error (list-products):', err.message);
     return { ok: false, error: err.response?.data?.message || err.message, records: [] };
-  }
-});
-
-// import-siparis: open dialog, parse .csv and .xlsx files and append rows to siparis-records.json
-ipcMain.handle('import-siparis', async (event, filePathsArg) => {
-  try {
-    let filePaths = filePathsArg;
-    if (!filePaths || !Array.isArray(filePaths) || filePaths.length === 0) {
-      const { canceled, filePaths: picked } = await dialog.showOpenDialog({
-        title: 'Dosya seç (CSV veya XLSX)',
-        properties: ['openFile', 'multiSelections'],
-        filters: [
-          { name: 'Sheets & CSV', extensions: ['csv', 'xlsx', 'xls'] }
-        ]
-      });
-      if (canceled || !picked || picked.length === 0) return { ok: true, imported: [] };
-      filePaths = picked;
-    }
-
-    // lazy-require xlsx so app still runs if package missing
-    let XLSX = null;
-    try { XLSX = require('xlsx'); } catch (e) { /* will handle below for xlsx files */ }
-
-    const rows = [];
-    for (const p of filePaths) {
-      const ext = path.extname(p || '').toLowerCase();
-      if (ext === '.csv') {
-        const raw = fs.readFileSync(p, 'utf8');
-        const lines = raw.split(/\r?\n/).filter(Boolean);
-        if (lines.length === 0) continue;
-        const headers = lines[0].split(',').map(h => h.trim());
-        for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(',');
-          const obj = {};
-          headers.forEach((h, idx) => { obj[h] = (cols[idx] || '').trim(); });
-          rows.push(obj);
-        }
-      } else if (ext === '.xlsx' || ext === '.xls') {
-        if (!XLSX) {
-          return { ok: false, error: 'xlsx parser not installed. run npm install xlsx' };
-        }
-        const workbook = XLSX.readFile(p);
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-        for (const r of json) rows.push(r);
-      }
-    }
-
-    // helper: normalize keys for robust matching
-    const normalize = (s) => String(s || '').toLowerCase().replace(/\s+/g, '').normalize('NFD').replace(/[^\w]/g, '');
-    const buildNormMap = (obj) => {
-      const map = {};
-      Object.keys(obj || {}).forEach(k => { map[normalize(k)] = obj[k]; });
-      return map;
-    };
-
-    const mapRow = (r) => {
-      const norm = buildNormMap(r);
-      const pick = (variants, fallback='') => {
-        for (const v of variants) if (norm[v] !== undefined) return norm[v];
-        return fallback;
-      };
-      return {
-        urunKodu: pick(['urunkodu','ürünkodu','urunkod','productcode','product_code']),
-        aciklama: pick(['aciklama','açıklama','description','desc']),
-        secenekler: pick(['secenekler','seçenekler','options']),
-        belgeNo: pick(['belgeno','belgeno','belgeno','docno','belgeno']),
-        musteriAdi: pick(['musteriadi','müşteriadı','musteri','customer']),
-        siparisAdet: pick(['siparisadet','siparişadet','qty','quantity'], '0'),
-        devirSayisi: pick(['devirsayisi','devirsayısı','turns'], '0')
-      };
-    };
-
-    const mappedAll = rows.map(mapRow);
-
-    // Send data to API instead of saving to JSON file
-    const response = await axios.post(`${API_BASE_URL}/siparis/import`, mappedAll);
-
-    return { ok: true, imported: response.data, filePaths };
-  } catch (err) {
-    console.error('API Error (import-siparis):', err.message);
-    return { ok: false, error: err.response?.data?.message || err.message };
-  }
-});
-
-// preview-siparis: open dialog, parse .csv and .xlsx files but DO NOT save; return parsed rows and filePaths (limit to first 20 rows)
-ipcMain.handle('preview-siparis', async () => {
-  try {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      title: 'Dosya seç (CSV veya XLSX)',
-      properties: ['openFile', 'multiSelections'],
-      filters: [
-        { name: 'Sheets & CSV', extensions: ['csv', 'xlsx', 'xls'] }
-      ]
-    });
-    if (canceled || !filePaths || filePaths.length === 0) return { ok: true, rows: [], filePaths: [] };
-
-    let XLSX = null;
-    try { XLSX = require('xlsx'); } catch (e) { }
-
-    const rows = [];
-    for (const p of filePaths) {
-      const ext = path.extname(p || '').toLowerCase();
-      if (ext === '.csv') {
-        const raw = fs.readFileSync(p, 'utf8');
-        const lines = raw.split(/\r?\n/).filter(Boolean);
-        if (lines.length === 0) continue;
-        const headers = lines[0].split(',').map(h => h.trim());
-        for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(',');
-          const obj = {};
-          headers.forEach((h, idx) => { obj[h] = (cols[idx] || '').trim(); });
-          rows.push(obj);
-        }
-      } else if (ext === '.xlsx' || ext === '.xls') {
-        if (!XLSX) {
-          return { ok: false, error: 'xlsx parser not installed. run npm install xlsx' };
-        }
-        const workbook = XLSX.readFile(p);
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-        for (const r of json) rows.push(r);
-      }
-    }
-
-    // normalize + map using robust normalization (matches variants like "Seçenekler", "Belge No", "Müşteri" etc.)
-    const normalize = (s) => String(s || '').toLowerCase().replace(/\s+/g, '').normalize('NFD').replace(/[^\w]/g, '');
-    const buildNormMap = (obj) => {
-      const map = {};
-      Object.keys(obj || {}).forEach(k => { map[normalize(k)] = obj[k]; });
-      return map;
-    };
-
-    const mapRow = (r) => {
-      const norm = buildNormMap(r);
-      const pick = (variants, fallback='') => {
-        for (const v of variants) if (norm[v] !== undefined) return norm[v];
-        return fallback;
-      };
-      return {
-        urunKodu: pick(['urunkodu','ürünkodu','urunkod','productcode','product_code','urunkodu','urun kodu']),
-        aciklama: pick(['aciklama','açıklama','description','desc']),
-        secenekler: pick(['secenekler','seçenekler','options','secenek','secenekler']),
-        belgeNo: pick(['belgeno','belge_no','belgeno','docno','doc_no','belge','belgeno','belge no']),
-        musteriAdi: pick(['musteriadi','müşteriadı','musteri','customer','musteri adi','müşteri']),
-        siparisAdet: pick(['siparisadet','siparişadet','qty','quantity','adet'], '0'),
-        devirSayisi: pick(['devirsayisi','devirsayısı','devir','turns'], '0')
-      };
-    };
-
-    const mapped = rows.map(mapRow);
-    return { ok: true, rows: mapped, filePaths };
-  } catch (err) {
-    return { ok: false, error: String(err) };
   }
 });
 
@@ -311,42 +113,12 @@ ipcMain.handle('delete-uretim', async (event, id) => {
   }
 });
 
-ipcMain.handle('delete-paketleme', async (event, id) => {
-  try {
-    const response = await axios.delete(`${API_BASE_URL}/paketleme/${id}`);
-    return { ok: true, removed: true };
-  } catch (err) {
-    console.error('API Error (delete-paketleme):', err.message);
-    return { ok: false, error: err.response?.data?.message || err.message };
-  }
-});
-
-ipcMain.handle('delete-urun', async (event, id) => {
-  try {
-    const response = await axios.delete(`${API_BASE_URL}/urun/${id}`);
-    return { ok: true, removed: true };
-  } catch (err) {
-    console.error('API Error (delete-urun):', err.message);
-    return { ok: false, error: err.response?.data?.message || err.message };
-  }
-});
-
 ipcMain.handle('delete-operasyon', async (event, id) => {
   try {
     const response = await axios.delete(`${API_BASE_URL}/operasyon/${id}`);
     return { ok: true, removed: true };
   } catch (err) {
     console.error('API Error (delete-operasyon):', err.message);
-    return { ok: false, error: err.response?.data?.message || err.message };
-  }
-});
-
-ipcMain.handle('delete-siparis', async (event, id) => {
-  try {
-    const response = await axios.delete(`${API_BASE_URL}/siparis/${id}`);
-    return { ok: true, removed: true };
-  } catch (err) {
-    console.error('API Error (delete-siparis):', err.message);
     return { ok: false, error: err.response?.data?.message || err.message };
   }
 });

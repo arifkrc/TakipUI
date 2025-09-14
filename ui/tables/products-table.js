@@ -1,4 +1,5 @@
 import { createSimpleTable } from '../simple-table.js';
+import { loadOperationsWithCache } from '../operations-cache.js';
 
 // Ürün kodu ve tip eşleştirme sistemi
 function getProductTypeFromCode(productCode) {
@@ -34,25 +35,9 @@ function validateProductCodeAndType(productCode, selectedType) {
   return { isValid: true };
 }
 
-// Operasyonları API'den yükle
+// Operasyonları cache ile yükle
 async function loadOperations(apiBaseUrl) {
-  try {
-    const url = `${apiBaseUrl}/Operations?status=active`;
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}`);
-    }
-
-    const apiResponse = await response.json();
-    return apiResponse?.data || [];
-  } catch (err) {
-    console.error('Failed to load operations for dropdown:', err);
-    return [];
-  }
+  return await loadOperationsWithCache(apiBaseUrl);
 }
 
 // Ürün tablosu konfigürasyonu
