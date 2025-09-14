@@ -1,9 +1,19 @@
-import { createRowCountSelector, createPaginationControls, showToast } from '../ui/helpers.js';
+import { showToast } from '../ui/helpers.js';
 import { createProductsTable } from '../ui/tables/products-table.js';
+import ApiClient from '../ui/core/api-client.js';
+import { APP_CONFIG } from '../config/app-config.js';
+import FormManager from '../ui/core/form-manager.js';
+import DropdownManager from '../ui/managers/dropdown-manager.js';
+import { createContext, destroyContext } from '../ui/core/event-manager.js';
+import { validateProduct } from '../ui/core/validation-engine.js';
+
 let _cleanup = null;
 
 export async function mount(container, { setHeader }) {
   setHeader('Ürünler', 'Ürün tanımları');
+
+  // EventManager context oluştur
+  const eventContext = createContext('product-form');
 
   container.innerHTML = `
     <div class="mt-2">
@@ -15,9 +25,6 @@ export async function mount(container, { setHeader }) {
           <label class="flex flex-col text-sm">Ürün Tipi
             <select name="type" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" required>
               <option value="">Seçiniz...</option>
-              <option value="DİSK">DİSK</option>
-              <option value="KAMPANA">KAMPANA</option>
-              <option value="POYRA">POYRA</option>
             </select>
           </label>
           <label class="flex flex-col text-sm">Son Operasyon
@@ -44,98 +51,70 @@ export async function mount(container, { setHeader }) {
   const form = container.querySelector('#urun-form');
   const placeholder = container.querySelector('#urun-list-placeholder');
 
-  // API configuration
-  const API_BASE_URL = 'https://localhost:7287/api';
-
-  // Load operations for dropdown
-  async function loadOperations() {
-    const operationSelect = form.querySelector('[name="lastOperationId"]');
-    try {
-      const response = await fetch(`${API_BASE_URL}/Operations`);
-      if (!response.ok) throw new Error('Operations yüklenemedi');
-      
-      const result = await response.json();
-      const operations = result.success ? result.data : [];
-
-      operationSelect.innerHTML = '<option value="">Operasyon seçiniz...</option>';
-      operations.forEach(op => {
-        const option = document.createElement('option');
-        option.value = op.id;
-        option.textContent = `${op.name} (${op.shortCode || op.id})`;
-        operationSelect.appendChild(option);
-      });
-    } catch (err) {
-      console.error('Operations load error:', err);
-      operationSelect.innerHTML = '<option value="">Operasyon yüklenemedi</option>';
-      showToast('Operasyonlar yüklenirken hata oluştu', 'error');
-    }
-  }
-
-  // Submit handler for adding new product
-  async function submitHandler(e) {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(form).entries());
-    
-    const submitBtn = form.querySelector('button[type="submit"]');
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Kaydediliyor...';
-    
-    try {
-      const payload = {
-        productCode: data.productCode,
-        name: data.name,
-        type: data.type,
-        description: data.description || '',
-        lastOperationId: data.lastOperationId ? parseInt(data.lastOperationId) : null
-      };
-
-      const response = await fetch(`${API_BASE_URL}/Products`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+  // Merkezi sistemleri başlat
+  const apiClient = new ApiClient(APP_CONFIG.API.BASE_URL);
+  const dropdownManager = new DropdownManager(apiClient);
+  
+  // Form manager oluştur
+  const formManager = FormManager.createForm(form, {
+    validation: {
+      schema: 'product',
+      realTime: true
+    },
+    autoSave: false,
+    submitHandler: async (formData) => {
+      // Validation
+      const validationResult = await validateProduct(formData, {
+        checkCodeTypeMatch: true,
+        checkUnique: true,
+        apiClient: apiClient
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      if (!validationResult.isValid) {
+        const errorMessages = validationResult.errors.map(err => err.message).join('\n');
+        showToast('Validation hatası:\n' + errorMessages, 'error');
+        return false;
       }
-      
-      const result = await response.json();
-      if (result.success) {
+
+      // API call
+      try {
+        const result = await apiClient.post('/Products', formData);
         showToast('Ürün başarıyla kaydedildi', 'success');
         form.reset();
         await dataTable.reload();
-      } else {
-        throw new Error(result.message || 'Kaydetme hatası');
+        return true;
+      } catch (err) {
+        showToast('Kaydetme hatası: ' + err.message, 'error');
+        return false;
       }
-    } catch (err) {
-      console.error('Save error:', err);
-      showToast('Kaydetme hatası: ' + err.message, 'error');
-    } finally { 
-      submitBtn.disabled = false; 
-      submitBtn.textContent = 'Kaydet'; 
     }
-  }
+  });
 
-  function resetHandler() {
-    form.reset();
-  }
+  // Reset button handler
+  eventContext.add(container.querySelector('#urun-reset'), 'click', () => {
+    formManager.reset();
+  });
 
-  form.addEventListener('submit', submitHandler);
-  container.querySelector('#urun-reset').addEventListener('click', resetHandler);
+  // Dropdownları doldur
+  await dropdownManager.populateProductTypes(form.querySelector('[name="type"]'));
+  await dropdownManager.populateOperations(form.querySelector('[name="lastOperationId"]'));
 
-  // Create data table with merkezileştirilmiş tablo yapısı
-  const dataTable = createProductsTable(API_BASE_URL);
+  // Data table oluştur (merkezi sistem kullanarak)
+  const dataTable = createProductsTable(APP_CONFIG.API.BASE_URL);
   placeholder.appendChild(dataTable);
 
   // Initialize
-  await loadOperations();
   await dataTable.init();
 
   _cleanup = () => {
-    try { form.removeEventListener('submit', submitHandler); } catch(e){}
-    try { const resetBtn = container.querySelector('#urun-reset'); if (resetBtn) resetBtn.removeEventListener('click', resetHandler); } catch(e){}
-    try { container.innerHTML = ''; } catch(e){}
+    try { 
+      formManager.destroy();
+      eventContext.cleanup();
+      destroyContext('product-form');
+      container.innerHTML = ''; 
+    } catch(e) {
+      console.error('Cleanup error:', e);
+    }
     _cleanup = null;
   };
 }

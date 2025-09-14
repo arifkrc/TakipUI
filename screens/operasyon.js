@@ -1,9 +1,18 @@
-import { showToast, showFormErrors, clearFormErrors } from '../ui/simple-table.js';
+import { showToast } from '../ui/helpers.js';
 import { createOperationsTable } from '../ui/tables/operations-table.js';
+import ApiClient from '../ui/core/api-client.js';
+import { APP_CONFIG } from '../config/app-config.js';
+import FormManager from '../ui/core/form-manager.js';
+import { createContext, destroyContext } from '../ui/core/event-manager.js';
+import { validateOperation } from '../ui/core/validation-engine.js';
+
 let _cleanup = null;
 
 export async function mount(container, { setHeader }) {
   setHeader('Operasyonlar', 'Operasyon tanımları');
+
+  // EventManager context oluştur
+  const eventContext = createContext('operation-form');
 
   container.innerHTML = `
     <div class="mt-2">
@@ -29,77 +38,70 @@ export async function mount(container, { setHeader }) {
   const form = container.querySelector('#operasyon-form');
   const placeholder = container.querySelector('#operasyon-list-placeholder');
 
-  // API configuration
-  const API_BASE_URL = 'https://localhost:7287/api';
-
-  async function submitHandler(e) {
-    e.preventDefault();
-    clearFormErrors(form);
-    
-    const fd = new FormData(form);
-    const data = Object.fromEntries(fd.entries());
-
-    const errors = [];
-    if (!data.operasyonKodu) errors.push({ field: 'operasyonKodu', msg: 'Operasyon kodu gerekli' });
-    if (!data.operasyonAdi) errors.push({ field: 'operasyonAdi', msg: 'Operasyon adı gerekli' });
-    
-    if (errors.length) { 
-      showFormErrors(form, errors); 
-      return;
-    }
-
-    const submitBtn = form.querySelector('button[type="submit"]');
-    submitBtn.disabled = true; 
-    submitBtn.textContent = 'Kaydediliyor...';
-    
-    try {
-      const payload = {
-        name: data.operasyonAdi,
-        shortCode: data.operasyonKodu
-      };
-
-      const url = `${API_BASE_URL}/Operations/entry`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+  // Merkezi sistemleri başlat
+  const apiClient = new ApiClient(APP_CONFIG.API.BASE_URL);
+  
+  // Form manager oluştur
+  const formManager = FormManager.createForm(form, {
+    validation: {
+      schema: 'operation',
+      realTime: true
+    },
+    autoSave: false,
+    submitHandler: async (formData) => {
+      // Validation
+      const validationResult = await validateOperation(formData, {
+        checkUnique: true,
+        apiClient: apiClient
       });
 
-      if (!response.ok) {
-        const responseText = await response.text();
-        throw new Error(`HTTP ${response.status} ${response.statusText}: ${responseText}`);
+      if (!validationResult.isValid) {
+        const errorMessages = validationResult.errors.map(err => err.message).join('\n');
+        showToast('Validation hatası:\n' + errorMessages, 'error');
+        return false;
       }
-      
-      showToast('Operasyon kaydedildi', 'success');
-      form.reset();
-      await dataTable.reload();
-      
-    } catch (err) {
-      console.error('❌ CREATE OPERATION ERROR:', err);
-      showToast('Kaydetme hatası: ' + err.message, 'error');
-    } finally { 
-      submitBtn.disabled = false; 
-      submitBtn.textContent = 'Kaydet'; 
+
+      // API payload hazırlama
+      const payload = {
+        name: formData.operasyonAdi,
+        shortCode: formData.operasyonKodu
+      };
+
+      // API call
+      try {
+        const result = await apiClient.post('/Operations/entry', payload);
+        showToast('Operasyon başarıyla kaydedildi', 'success');
+        form.reset();
+        await dataTable.reload();
+        return true;
+      } catch (err) {
+        showToast('Kaydetme hatası: ' + err.message, 'error');
+        return false;
+      }
     }
-  }
+  });
 
-  function resetHandler() { 
-    form.reset(); 
-  }
+  // Reset button handler
+  eventContext.add(container.querySelector('#operasyon-reset'), 'click', () => {
+    formManager.reset();
+  });
 
-  form.addEventListener('submit', submitHandler);
-  container.querySelector('#operasyon-reset').addEventListener('click', resetHandler);
-
-  // Create data table with configuration
-  const dataTable = createOperationsTable(API_BASE_URL);
-
+  // Data table oluştur (merkezi sistem kullanarak)
+  const dataTable = createOperationsTable(APP_CONFIG.API.BASE_URL);
   placeholder.appendChild(dataTable);
+
+  // Initialize
   await dataTable.init();
 
   _cleanup = () => {
-    try { form.removeEventListener('submit', submitHandler); } catch(e){}
-    try { const resetBtn = container.querySelector('#operasyon-reset'); if (resetBtn) resetBtn.removeEventListener('click', resetHandler); } catch(e){}
-    try { container.innerHTML = ''; } catch(e){}
+    try { 
+      formManager.destroy();
+      eventContext.cleanup();
+      destroyContext('operation-form');
+      container.innerHTML = ''; 
+    } catch(e) {
+      console.error('Cleanup error:', e);
+    }
     _cleanup = null;
   };
 }
