@@ -1,38 +1,36 @@
 // Preload - expose a minimal, safe API for renderer to request saves
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Main API - consistent naming with electronAPI alias for backward compatibility
+// Main API - only keep handlers that are actually implemented in main.js
 const api = {
-  // save production record (returns a promise)
+  // production records
   saveUretim: (data) => ipcRenderer.invoke('save-uretim', data),
   listUretim: () => ipcRenderer.invoke('list-uretim'),
-  savePaketleme: (data) => ipcRenderer.invoke('save-paketleme', data),
-  listPaketleme: () => ipcRenderer.invoke('list-paketleme'),
-  // product (urun)
-  saveUrun: (data) => ipcRenderer.invoke('save-urun', data),
-  listUrun: () => ipcRenderer.invoke('list-urun'),
-  // operasyon (operations)
+  deleteUretim: (id) => ipcRenderer.invoke('delete-uretim', id),
+  
+  // operations
   saveOperasyon: (data) => ipcRenderer.invoke('save-operasyon', data),
   listOperasyon: () => ipcRenderer.invoke('list-operasyon'),
-  // siparis (orders)
-  saveSiparis: (data) => ipcRenderer.invoke('save-siparis', data),
-  listSiparis: () => ipcRenderer.invoke('list-siparis'),
-  importSiparis: (filePaths) => ipcRenderer.invoke('import-siparis', filePaths),
-  previewSiparis: () => ipcRenderer.invoke('preview-siparis'),
-  // deletes by savedAt timestamp
-  deleteUretim: (savedAt) => ipcRenderer.invoke('delete-uretim', savedAt),
-  deletePaketleme: (savedAt) => ipcRenderer.invoke('delete-paketleme', savedAt),
-  deleteUrun: (savedAt) => ipcRenderer.invoke('delete-urun', savedAt),
-  deleteOperasyon: (savedAt) => ipcRenderer.invoke('delete-operasyon', savedAt),
-  deleteSiparis: (savedAt) => ipcRenderer.invoke('delete-siparis', savedAt),
+  deleteOperasyon: (id) => ipcRenderer.invoke('delete-operasyon', id),
+  
+  // products
+  saveProduct: (data) => ipcRenderer.invoke('save-product', data),
+  listProducts: () => ipcRenderer.invoke('list-products'),
+  
+  // cycle times
+  saveCycleTime: (data) => ipcRenderer.invoke('save-cycle-time', data),
+  listCycleTimes: () => ipcRenderer.invoke('list-cycle-times'),
+  deleteCycleTime: (id) => ipcRenderer.invoke('delete-cycle-time', id),
+  
+  // operation types
+  getOperationTypes: (onlyActive = false) => ipcRenderer.invoke('get-operation-types', onlyActive),
+  
   // staging operations for CSV batch processing
   stagingAdd: (type, record) => ipcRenderer.invoke('staging-add', type, record),
   stagingList: (type) => ipcRenderer.invoke('staging-list', type),
   stagingClear: (type) => ipcRenderer.invoke('staging-clear', type),
   stagingDelete: (type, stagedId) => ipcRenderer.invoke('staging-delete', type, stagedId),
-  stagingUpload: (type) => ipcRenderer.invoke('staging-upload', type),
-  // operation types API
-  getOperationTypes: (onlyActive = false) => ipcRenderer.invoke('get-operation-types', onlyActive)
+  stagingUpload: (type) => ipcRenderer.invoke('staging-upload', type)
 };
 
 // Expose both 'api' and 'electronAPI' for consistency

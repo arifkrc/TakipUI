@@ -3,6 +3,7 @@ const { ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const axiosRetry = require('axios-retry').default || require('axios-retry');
 const os = require('os');
 
 // API Configuration - HTTPS backend için
@@ -21,6 +22,76 @@ axios.defaults.httpsAgent = new (require('https').Agent)({
 axios.defaults.timeout = 10000; // 10 saniye timeout
 axios.defaults.headers.common['Accept'] = 'application/json';
 axios.defaults.headers.common['Content-Type'] = 'application/json';
+
+// Axios retry logic - Network hatalarında yeniden deneme
+axiosRetry(axios, {
+  retries: 3, // 3 kez dene
+  retryDelay: (retryCount) => {
+    console.log(`🔄 API Retry attempt ${retryCount}`);
+    return axiosRetry.exponentialDelay(retryCount); // Exponential backoff
+  },
+  retryCondition: (error) => {
+    // Network errors veya 5xx server errors'da retry yap
+    return axiosRetry.isNetworkOrIdempotentRequestError(error) || 
+           (error.response && error.response.status >= 500);
+  },
+  onRetry: (retryCount, error, requestConfig) => {
+    console.log(`⚠️ API Retry ${retryCount}: ${error.message} - ${requestConfig.url}`);
+  }
+});
+
+// Request interceptor - API çağrılarını loglama
+axios.interceptors.request.use(
+  (config) => {
+    const timestamp = new Date().toISOString();
+    console.log(`🔗 API Request [${timestamp}]: ${config.method?.toUpperCase()} ${config.url}`);
+    
+    // Request timing için başlangıç zamanını kaydet
+    config.metadata = { startTime: Date.now() };
+    
+    return config;
+  },
+  (error) => {
+    console.error('❌ Request Interceptor Error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Response interceptor - API yanıtlarını loglama ve error handling
+axios.interceptors.response.use(
+  (response) => {
+    const duration = Date.now() - response.config.metadata.startTime;
+    const timestamp = new Date().toISOString();
+    
+    console.log(`✅ API Response [${timestamp}]: ${response.status} ${response.config.url} (${duration}ms)`);
+    
+    // Response size logla (debug için)
+    const dataSize = JSON.stringify(response.data).length;
+    if (dataSize > 10000) { // 10KB'dan büyükse warn et
+      console.warn(`⚠️ Large API Response: ${(dataSize / 1024).toFixed(1)}KB from ${response.config.url}`);
+    }
+    
+    return response;
+  },
+  (error) => {
+    const timestamp = new Date().toISOString();
+    const duration = error.config?.metadata ? Date.now() - error.config.metadata.startTime : 'unknown';
+    
+    if (error.response) {
+      // Server responded with error status
+      console.error(`❌ API Error [${timestamp}]: ${error.response.status} ${error.config?.url} (${duration}ms)`);
+      console.error(`   Error Data:`, error.response.data);
+    } else if (error.request) {
+      // Network error - no response received
+      console.error(`❌ Network Error [${timestamp}]: ${error.message} - ${error.config?.url} (${duration}ms)`);
+    } else {
+      // Other error
+      console.error(`❌ Request Setup Error [${timestamp}]:`, error.message);
+    }
+    
+    return Promise.reject(error);
+  }
+);
 
 // Electron Cache Best Practices - Kalıcı Çözüm
 // path, fs, os zaten üstte tanımlandı

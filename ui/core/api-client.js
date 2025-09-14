@@ -53,62 +53,110 @@ export class ApiClient {
   }
 
   /**
-   * Internal request handler
+   * Internal request handler with retry logic
    */
   async _request(method, endpoint, data = null, options = {}) {
     const url = this._buildUrl(endpoint);
     const config = this._buildRequestConfig(method, data, options);
+    
+    // Retry configuration
+    const maxRetries = options.retries || 3;
+    const retryDelay = options.retryDelay || 1000; // 1 second base delay
 
-    try {
-      console.log(`🔄 ${method} ${url}${data ? '\n📤 PAYLOAD: ' + JSON.stringify(data, null, 2) : ''}`);
-      
-      const response = await fetch(url, config);
-      
-      console.log(`📥 ${method} ${url} - Status: ${response.status} ${response.statusText}`);
+    let lastError = null;
 
-      // Response body'yi oku
-      const responseText = await response.text();
-      let responseData = null;
-
-      // JSON parse et (eğer boş değilse)
-      if (responseText) {
-        try {
-          responseData = JSON.parse(responseText);
-        } catch (parseError) {
-          console.warn('⚠️ Response JSON parse hatası, raw text döndürülüyor:', parseError);
-          responseData = responseText;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        // Log request (only on first attempt to avoid spam)
+        if (attempt === 0) {
+          console.log(`🔄 ${method} ${url}${data ? '\n📤 PAYLOAD: ' + JSON.stringify(data, null, 2) : ''}`);
+        } else {
+          console.log(`🔄 Retry ${attempt}/${maxRetries}: ${method} ${url}`);
         }
-      }
+        
+        const response = await fetch(url, config);
+        
+        console.log(`📥 ${method} ${url} - Status: ${response.status} ${response.statusText} (Attempt: ${attempt + 1})`);
 
-      // Başarılı response
-      if (response.ok) {
-        console.log(`✅ ${method} SUCCESS:`, responseData);
+        // Response body'yi oku
+        const responseText = await response.text();
+        let responseData = null;
+
+        // JSON parse et (eğer boş değilse)
+        if (responseText) {
+          try {
+            responseData = JSON.parse(responseText);
+          } catch (parseError) {
+            console.warn('⚠️ Response JSON parse hatası, raw text döndürülüyor:', parseError);
+            responseData = responseText;
+          }
+        }
+
+        // Başarılı response
+        if (response.ok) {
+          if (attempt > 0) {
+            console.log(`✅ ${method} SUCCESS after ${attempt} retries:`, responseData);
+          } else {
+            console.log(`✅ ${method} SUCCESS:`, responseData);
+          }
+          return {
+            success: true,
+            data: responseData,
+            status: response.status,
+            statusText: response.statusText
+          };
+        }
+
+        // 5xx server errors - retry yapılabilir
+        if (response.status >= 500 && attempt < maxRetries) {
+          console.warn(`⚠️ Server error ${response.status}, retrying in ${retryDelay * (attempt + 1)}ms...`);
+          await this._delay(retryDelay * (attempt + 1)); // Exponential backoff
+          continue;
+        }
+
+        // 4xx client errors - retry yapma, direkt fail
+        console.error(`❌ ${method} ERROR - ${response.status} ${response.statusText}:`, responseData);
+        
         return {
-          success: true,
-          data: responseData,
+          success: false,
+          error: responseData || `HTTP ${response.status} ${response.statusText}`,
           status: response.status,
           statusText: response.statusText
         };
+
+      } catch (error) {
+        lastError = error;
+        
+        // Network error - retry yapılabilir
+        if (attempt < maxRetries) {
+          console.warn(`⚠️ Network error, retrying in ${retryDelay * (attempt + 1)}ms:`, error.message);
+          await this._delay(retryDelay * (attempt + 1));
+          continue;
+        }
+
+        // Max retry'a ulaşıldı
+        console.error(`💥 ${method} NETWORK ERROR after ${maxRetries} retries:`, error);
+        return {
+          success: false,
+          error: error.message || 'Network error occurred',
+          networkError: true
+        };
       }
-
-      // Hata response
-      console.error(`❌ ${method} ERROR - ${response.status} ${response.statusText}:`, responseData);
-      
-      return {
-        success: false,
-        error: responseData || `HTTP ${response.status} ${response.statusText}`,
-        status: response.status,
-        statusText: response.statusText
-      };
-
-    } catch (error) {
-      console.error(`💥 ${method} NETWORK ERROR:`, error);
-      return {
-        success: false,
-        error: error.message || 'Network error occurred',
-        networkError: true
-      };
     }
+
+    // Buraya ulaşılmamalı ama güvenlik için
+    return {
+      success: false,
+      error: lastError?.message || 'Unknown error occurred',
+      networkError: true
+    };
+  }
+
+  /**
+   * Utility function for delays
+   */
+  async _delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
