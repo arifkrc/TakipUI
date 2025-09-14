@@ -439,6 +439,12 @@ export function createOrdersTable(apiBaseUrl) {
 
           showToast('Tamamlanan miktar güncellendi', 'success');
           
+          // Eğer tamamlanan miktar arttıysa, Packings tablosuna da kayıt ekle
+          if (newValue > currentValue) {
+            const addedQuantity = newValue - currentValue;
+            await addPackingRecord(record.productCode, addedQuantity, apiBaseUrl, showToast);
+          }
+          
           // Tabloyu yenile
           await loadData();
 
@@ -505,4 +511,47 @@ export function createOrdersTable(apiBaseUrl) {
       return true; // Özel işlem yapıldı, normal edit moduna geçme
     }
   });
+}
+
+// Paketleme kaydı ekleme fonksiyonu
+async function addPackingRecord(productCode, quantity, apiBaseUrl, showToast) {
+  try {
+    console.log('📦 Adding packing record:', { productCode, quantity });
+    
+    // Packings API payload
+    const packingPayload = {
+      shift: null,
+      supervisor: null,
+      productCode: productCode,
+      quantity: quantity,
+      explodedFrom: null,
+      explodingTo: null
+    };
+    
+    console.log('📤 Packing payload:', JSON.stringify(packingPayload, null, 2));
+    
+    // Packings endpoint'ine POST isteği
+    const packingResponse = await fetch(`${apiBaseUrl}/Packings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(packingPayload)
+    });
+    
+    if (!packingResponse.ok) {
+      const errorText = await packingResponse.text();
+      throw new Error(`Packing kayıt hatası: HTTP ${packingResponse.status} - ${errorText}`);
+    }
+    
+    const packingResult = await packingResponse.json();
+    console.log('✅ Packing record added:', packingResult);
+    
+    // Kullanıcıya bilgi ver (opsiyonel - çok fazla toast olmasın diye kısa mesaj)
+    showToast(`+${quantity} adet paketleme kaydı eklendi`, 'info');
+    
+  } catch (error) {
+    console.error('❌ Packing record error:', error);
+    // Paketleme kaydı başarısız olsa bile sipariş güncellemesi başarılı olduğu için error toast vermeyelim
+    // Sadece console'da log tutalım
+    console.warn('⚠️ Packing record could not be added, but order update was successful');
+  }
 }
