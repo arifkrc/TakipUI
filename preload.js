@@ -29,6 +29,7 @@ const api = {
   stagingAdd: (type, record) => ipcRenderer.invoke('staging-add', type, record),
   stagingList: (type) => ipcRenderer.invoke('staging-list', type),
   stagingClear: (type) => ipcRenderer.invoke('staging-clear', type),
+  stagingDelete: (type, stagedId) => ipcRenderer.invoke('staging-delete', type, stagedId),
   stagingUpload: (type) => ipcRenderer.invoke('staging-upload', type),
   // operation types API
   getOperationTypes: (onlyActive = false) => ipcRenderer.invoke('get-operation-types', onlyActive)

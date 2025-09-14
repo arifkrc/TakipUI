@@ -5,7 +5,7 @@ const fs = require('fs');
 const axios = require('axios');
 
 // API Configuration
-const API_BASE_URL = 'https://localhost:7196/api';
+const API_BASE_URL = 'https://localhost:7287';
 
 // Configure axios to ignore self-signed certificates for localhost
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
@@ -18,12 +18,12 @@ function createWindow () {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webSecurity: false // SSL certificate sorununu çözmek için
     }
   })
 
   win.loadFile('index.html');
-  // win.webContents.openDevTools();
 }
 
 app.whenReady().then(() => {
@@ -466,6 +466,38 @@ ipcMain.handle('staging-clear', async (_, type) => {
   } catch (err) {
     console.error('staging-clear error:', err);
     return false;
+  }
+});
+
+ipcMain.handle('staging-delete', async (_, type, stagedId) => {
+  try {
+    const rows = readStagedCsv(type);
+    const filtered = rows.filter(r => r._stagedId !== stagedId);
+    
+    // Rewrite the CSV file without the deleted record
+    const p = stagedCsvPath(type);
+    const header = '_stagedId,_stagedAt,payload\n';
+    
+    if (filtered.length === 0) {
+      // If no records left, delete the file
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } else {
+      // Rewrite file with remaining records
+      const lines = filtered.map(r => {
+        const payloadJson = JSON.stringify(r.payload);
+        return [
+          escapeCsvCell(r._stagedId),
+          escapeCsvCell(String(r._stagedAt)),
+          escapeCsvCell(payloadJson)
+        ].join(',');
+      });
+      fs.writeFileSync(p, header + lines.join('\n') + '\n', 'utf8');
+    }
+    
+    return { ok: true, removed: rows.length - filtered.length };
+  } catch (err) {
+    console.error('staging-delete error:', err);
+    return { ok: false, error: String(err) };
   }
 });
 
