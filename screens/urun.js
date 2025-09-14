@@ -1,4 +1,5 @@
-import { createRowCountSelector, createPaginationControls, createStagingControls, showToast, showFormErrors, clearFormErrors } from '../ui/helpers.js';
+import { showToast, showFormErrors, clearFormErrors } from '../ui/simple-table.js';
+import { createProductsTable, getProductTypeFromCode, validateProductCodeAndType } from '../ui/tables/products-table.js';
 let _cleanup = null;
 
 export async function mount(container, { setHeader }) {
@@ -7,184 +8,224 @@ export async function mount(container, { setHeader }) {
   container.innerHTML = `
     <div class="mt-2">
       <h3 class="text-xl font-semibold mb-2">Ürün Ekle</h3>
+      </br>
       <form id="urun-form" class="space-y-4">
-        <div class="grid grid-cols-3 gap-4">
-          <label class="flex flex-col text-sm">Ürün Kodu<input name="urunKodu" type="text" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" required /></label>
-          <label class="flex flex-col text-sm">Ürün Tipi<select name="urunTipi" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100"><option value="standart">Standart</option><option value="ozel">Özel</option><option value="numune">Numune</option></select></label>
-          <label class="flex items-center gap-3 text-sm">Aktif<label class="switch"><input name="aktif" type="checkbox" checked class="mt-1"/></label></label>
+        <div class="grid grid-cols-4 gap-4">
+          <label class="flex flex-col text-sm">Ürün Kodu<input name="productCode" type="text" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" required /></label>
+          <label class="flex flex-col text-sm">Ürün Adı<input name="name" type="text" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" required /></label>
+          <label class="flex flex-col text-sm">Ürün Tipi
+            <select name="type" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" required>
+              <option value="">Seçiniz...</option>
+              <option value="DİSK">DİSK</option>
+              <option value="KAMPANA">KAMPANA</option>
+              <option value="POYRA">POYRA</option>
+            </select>
+          </label>
+          <label class="flex flex-col text-sm">Son Operasyon
+            <select name="lastOperationId" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" required>
+              <option value="">Yükleniyor...</option>
+            </select>
+          </label>
         </div>
 
-        <div>
-          <label class="flex flex-col text-sm">Ürün Açıklaması<textarea name="urunAciklamasi" rows="3" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100"></textarea></label>
+        <div class="grid grid-cols-1 gap-4">
+          <label class="flex flex-col text-sm">Açıklama<textarea name="description" rows="2" class="mt-1 px-3 py-2 bg-neutral-800 rounded text-neutral-100" placeholder="Ürün açıklaması (opsiyonel)"></textarea></label>
         </div>
 
         <div class="flex items-center gap-3">
           <button type="submit" class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500">Kaydet</button>
+          </br></br></br>
           <button type="button" id="urun-reset" class="px-4 py-2 rounded bg-neutral-700 hover:bg-neutral-600">Temizle</button>
         </div>
       </form>
 
-      <div id="staging-controls-placeholder"></div>
       <div id="urun-list-placeholder"></div>
     </div>
   `;
 
   const form = container.querySelector('#urun-form');
-  const stagingPlaceholder = container.querySelector('#staging-controls-placeholder');
   const placeholder = container.querySelector('#urun-list-placeholder');
 
-  // Create staging controls
-  const stagingControls = createStagingControls('urun', {
-    onAddLocal: async () => {
-      clearFormErrors(form);
-      const fd = new FormData(form);
-      const data = Object.fromEntries(fd.entries());
-      data.aktif = !!form.querySelector('[name="aktif"]').checked;
+  // API configuration
+  const API_BASE_URL = 'https://localhost:7287/api';
 
-      const errors = [];
-      if (!data.urunKodu) errors.push({ field: 'urunKodu', msg: 'Ürün kodu gerekli' });
-      if (errors.length) { 
-        showFormErrors(form, errors); 
-        throw new Error('Form validation failed');
+  // Operasyonları yükle
+  async function loadOperations() {
+    const operationSelect = form.querySelector('[name="lastOperationId"]');
+    
+    try {
+      const url = `${API_BASE_URL}/Operations?status=active`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
 
-      await window.api.stagingAdd('urun', data);
-      showToast('Ürün local\'e eklendi', 'success');
-      form.reset();
-      form.querySelector('[name="aktif"]').checked = true;
-      form.querySelector('[name="urunTipi"]').value = 'standart';
-    },
-    onUploadAll: async () => {
-      return await window.api.stagingUpload('urun');
-    },
-    onClearAll: async () => {
-      await window.api.stagingClear('urun');
-    },
-    refreshCallback: async () => {
-      await loadList();
+      const apiResponse = await response.json();
+      const operations = apiResponse?.data || [];
+
+      // Operasyon dropdown'ını doldur
+      operationSelect.innerHTML = '<option value="">Operasyon seçiniz...</option>';
+      operations.forEach(op => {
+        const option = document.createElement('option');
+        option.value = op.id;
+        option.textContent = `${op.name} (${op.shortCode})`;
+        operationSelect.appendChild(option);
+      });
+
+      console.log('✅ Operations loaded:', operations.length);
+
+    } catch (err) {
+      console.error('❌ LOAD OPERATIONS ERROR:', err);
+      operationSelect.innerHTML = '<option value="">Operasyon yüklenemedi</option>';
+      showToast('Operasyonlar yüklenirken hata oluştu', 'error');
     }
-  });
-  
-  stagingPlaceholder.appendChild(stagingControls);
+  }
 
   async function submitHandler(e) {
     e.preventDefault();
+    console.log('🚀 Form submit başladı');
+    clearFormErrors(form);
+    
     const fd = new FormData(form);
     const data = Object.fromEntries(fd.entries());
-    // checkbox handling
-    data.aktif = !!form.querySelector('[name="aktif"]').checked;
+    console.log('📋 Form data:', data);
+
+    const errors = [];
+    if (!data.productCode) errors.push({ field: 'productCode', msg: 'Ürün kodu gerekli' });
+    if (!data.name) errors.push({ field: 'name', msg: 'Ürün adı gerekli' });
+    if (!data.type) errors.push({ field: 'type', msg: 'Ürün tipi seçimi gerekli' });
+    if (!data.lastOperationId) errors.push({ field: 'lastOperationId', msg: 'Son operasyon seçimi gerekli' });
+    
+    if (errors.length) { 
+      console.log('❌ Validation errors:', errors);
+      showFormErrors(form, errors); 
+      return;
+    }
+
+    console.log('✅ Validation passed, proceeding...');
+
+    // Ürün kodu ve tip uyumluluğunu kontrol et
+    const validation = validateProductCodeAndType(data.productCode, data.type);
+    
+    if (!validation.isValid || validation.warning) {
+      const message = validation.warning || `Kod-tip uyumsuzluğu: Beklenen "${validation.expectedType}", Seçilen "${data.type}"`;
+      showToast(`⚠️ UYARI: ${message} - Kayıt devam ediyor...`, 'warning');
+    }
 
     const submitBtn = form.querySelector('button[type="submit"]');
-    submitBtn.disabled = true; submitBtn.textContent = 'Kaydediliyor...';
+    submitBtn.disabled = true; 
+    submitBtn.textContent = 'Kaydediliyor...';
+    
     try {
-      const res = await window.electronAPI.saveUrun(data);
-      if (res && res.ok) {
-        // reset except keep urunTipi maybe
-        form.reset();
-        form.querySelector('[name="urunTipi"]').value = data.urunTipi || 'standart';
-        await loadList();
-      } else {
-        console.error('saveUrun failed', res);
+      const payload = {
+        productCode: data.productCode,
+        name: data.name,
+        type: data.type,
+        description: data.description || '',
+        lastOperationId: data.lastOperationId ? parseInt(data.lastOperationId) : null // Convert to integer
+      };
+
+      const url = `${API_BASE_URL}/Products`;
+      console.log('🔗 API REQUEST URL:', url);
+      console.log('📤 PAYLOAD:', JSON.stringify(payload, null, 2));
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      console.log('📥 RESPONSE STATUS:', response.status, response.statusText);
+      
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.log('❌ RESPONSE ERROR BODY:', responseText);
+        
+        let errorMessage = 'Kaydetme hatası oluştu';
+        
+        // HTTP 409 (Conflict) durumunda özel mesaj
+        if (response.status === 409) {
+          errorMessage = `Ürün kodu "${data.productCode}" zaten mevcut. Lütfen farklı bir kod girin.`;
+        } else {
+          // Diğer hatalar için genel mesaj
+          errorMessage = `HTTP ${response.status}: Kaydetme hatası - ${responseText}`;
+        }
+        
+        throw new Error(errorMessage);
       }
+      
+      const responseData = await response.json();
+      console.log('✅ SUCCESS RESPONSE:', responseData);
+      
+      showToast('Ürün başarıyla kaydedildi', 'success');
+      form.reset();
+      await dataTable.reload();
+      
     } catch (err) {
-      console.error(err);
-    } finally { submitBtn.disabled = false; submitBtn.textContent = 'Kaydet'; }
+      console.error('❌ CREATE PRODUCT ERROR:', err);
+      showToast('Kaydetme hatası: ' + err.message, 'error');
+    } finally { 
+      submitBtn.disabled = false; 
+      submitBtn.textContent = 'Kaydet'; 
+    }
   }
 
-  function resetHandler() { form.reset(); }
+  function resetHandler() { 
+    form.reset(); 
+    // Operasyonları yeniden yükle
+    loadOperations();
+  }
 
   form.addEventListener('submit', submitHandler);
-  form.querySelector('#urun-reset').addEventListener('click', resetHandler);
+  container.querySelector('#urun-reset').addEventListener('click', resetHandler);
+  
+  console.log('📋 Form event listeners attached');
+  console.log('🔍 Form element:', form);
+  console.log('🔍 Submit button:', form.querySelector('button[type="submit"]'));
 
-  async function loadList() {
-    const res = await window.electronAPI.listUrun();
-    if (!res || !res.ok) { placeholder.innerHTML = '<div class="text-rose-400">Liste yüklenemedi</div>'; return; }
-    const records = res.records || [];
-
-  const { wrapper: selectorWrap, select } = createRowCountSelector(20);
-  const searchWrap = document.createElement('div');
-  searchWrap.className = 'ml-2';
-  searchWrap.innerHTML = `<input type="search" placeholder="Tabloda ara..." class="px-3 py-2 rounded bg-neutral-800 text-neutral-200" />`;
-  const searchInput = searchWrap.querySelector('input');
-
-  placeholder.innerHTML = '';
-  const topRow = document.createElement('div'); topRow.className = 'flex items-center gap-2'; topRow.appendChild(selectorWrap); topRow.appendChild(searchWrap);
-  placeholder.appendChild(topRow);
-
-    let pageSize = (select.value === 'all') ? records.length || 1 : Number(select.value || 20);
-    let currentPage = 1;
-    const pager = createPaginationControls(records.length, pageSize, currentPage, (p) => { currentPage = p; renderTable(); });
-  placeholder.appendChild(pager);
-  const debugInfo = document.createElement('div'); debugInfo.className = 'text-sm text-neutral-400 mt-1'; placeholder.appendChild(debugInfo);
-
-    const renderTable = () => {
-      const limit = select.value;
-      pageSize = (limit === 'all') ? records.length || 1 : Number(limit || 20);
-  try { pager.update(records.length, pageSize, currentPage); } catch(e) {}
-  try { debugInfo.textContent = `Toplam: ${records.length}, SayfaBoyutu: ${pageSize}, Sayfa: ${currentPage}`; } catch(e) {}
-      const start = (currentPage - 1) * pageSize;
-      const q = (searchInput && searchInput.value || '').trim().toLowerCase();
-      const filtered = q ? records.filter(r => {
-        return ['urunKodu','urunAciklamasi','urunTipi'].some(k => String(r[k] || '').toLowerCase().includes(q));
-      }) : records;
-      const slice = (limit === 'all') ? filtered : filtered.slice(start, start + pageSize);
-      const html = `
-      <div class="mt-4">
-        <h4 class="text-lg font-medium mb-2">Tanımlı Ürünler</h4>
-        <div class="overflow-auto bg-neutral-800 p-2 rounded">
-          <table class="w-full text-left text-sm">
-            <thead class="text-neutral-400">
-              <tr>
-                <th class="p-2"> </th>
-                <th class="p-2">Ürün Kodu</th>
-                <th class="p-2">Açıklama</th>
-                <th class="p-2">Tipi</th>
-                <th class="p-2">Aktif</th>
-                <th class="p-2">Kaydedildi</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${slice.map(r => `
-                <tr class="border-t border-neutral-700">
-                  <td class="p-2"><button data-savedat="${r.savedAt || ''}" class="delete-btn px-2 py-1 rounded bg-rose-600 hover:bg-rose-500">✖</button></td>
-                  <td class="p-2">${r.urunKodu || ''}</td>
-                  <td class="p-2">${r.urunAciklamasi || ''}</td>
-                  <td class="p-2">${r.urunTipi || ''}</td>
-                  <td class="p-2">${r.aktif ? 'Evet' : 'Hayır'}</td>
-                  <td class="p-2 text-neutral-400">${r.savedAt ? new Date(r.savedAt).toLocaleString() : ''}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
-  const existingTable = placeholder.querySelector('.mt-4');
-  if (existingTable) existingTable.outerHTML = html; else placeholder.insertAdjacentHTML('beforeend', html);
-  try { pager.update(records.length, pageSize, currentPage); } catch(e) {}
-  placeholder.querySelectorAll('.delete-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const savedAt = btn.getAttribute('data-savedat'); if (!savedAt) return; btn.disabled = true;
-      const res = await window.electronAPI.deleteUrun(savedAt);
-      if (res && res.ok && res.removed) { await loadList(); } else { btn.disabled = false; }
-    });
+  // Ürün kodu değiştiğinde otomatik tip önerisi
+  const productCodeInput = form.querySelector('[name="productCode"]');
+  const typeSelect = form.querySelector('[name="type"]');
+  
+  productCodeInput.addEventListener('input', (e) => {
+    const productCode = e.target.value;
+    const suggestedType = getProductTypeFromCode(productCode);
+    
+    if (suggestedType && typeSelect.value === '') {
+      // Sadece tip seçilmemişse otomatik öneri yap
+      typeSelect.value = suggestedType;
+      showToast(`Ürün tipi otomatik "${suggestedType}" olarak ayarlandı`, 'info');
+    }
   });
-    };
 
-  pager.update(records.length, pageSize, currentPage);
-  renderTable();
-  select.addEventListener('change', () => { currentPage = 1; pager.update(records.length, (select.value==='all'?records.length:Number(select.value)), currentPage); renderTable(); });
-  if (searchInput) searchInput.addEventListener('input', () => { currentPage = 1; pager.update(records.length, (select.value==='all'?records.length:Number(select.value)), currentPage); renderTable(); });
+  // Form reset butonunu güncelleyelim ki operasyon seçimi de temizlensin
+  function resetHandler() { 
+    form.reset(); 
+    // Operasyonları yeniden yükle
+    loadOperations();
   }
 
-  await loadList();
+  // Create data table with configuration
+  const dataTable = createProductsTable(API_BASE_URL);
+
+  placeholder.appendChild(dataTable);
+  await dataTable.init();
+
+  // Operasyonları yükle
+  await loadOperations();
 
   _cleanup = () => {
     try { form.removeEventListener('submit', submitHandler); } catch(e){}
-    try { const resetBtn = form.querySelector('#urun-reset'); if (resetBtn) resetBtn.removeEventListener('click', resetHandler); } catch(e){}
+    try { const resetBtn = container.querySelector('#urun-reset'); if (resetBtn) resetBtn.removeEventListener('click', resetHandler); } catch(e){}
     try { container.innerHTML = ''; } catch(e){}
     _cleanup = null;
   };
 }
 
-export async function unmount(container) { if (_cleanup) _cleanup(); }
+export async function unmount(container) { 
+  if (_cleanup) _cleanup(); 
+}

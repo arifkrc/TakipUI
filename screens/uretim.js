@@ -476,7 +476,7 @@ export async function mount(container, { setHeader }) {
           
           if (!stagedId) return;
           
-          if (!confirm('Bu local kaydı silmek istediğinizden emin misiniz?')) return;
+          showToast('Local kayıt siliniyor...', 'warning');
           
           btn.disabled = true;
           btn.textContent = 'Siliniyor...';
@@ -689,7 +689,7 @@ export async function mount(container, { setHeader }) {
         const stagedId = btn.getAttribute('data-staged-id');
         if (!stagedId) return;
         
-        if (!confirm('Local kaydı silmek istediğinizden emin misiniz?')) return;
+        showToast('Local kayıt siliniyor...', 'warning');
         
         btn.disabled = true;
         try {

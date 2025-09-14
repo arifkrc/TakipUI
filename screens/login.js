@@ -1,4 +1,6 @@
 // Login screen module
+import { showToast } from '../ui/simple-table.js';
+
 export async function mount(container, { setHeader, onLogin }) {
   setHeader('Giriş', 'Kullanıcı girişi');
   container.innerHTML = `
@@ -14,24 +16,21 @@ export async function mount(container, { setHeader, onLogin }) {
           <input name="password" type="password" class="w-full px-3 py-2 rounded bg-neutral-800 text-neutral-100" required />
         </div>
         <button type="submit" class="w-full py-2 rounded bg-indigo-600 hover:bg-indigo-500 font-semibold">Giriş</button>
-        <div id="login-error" class="text-rose-400 text-sm mt-2 hidden"></div>
       </form>
     </div>
   `;
   const form = container.querySelector('#login-form');
-  const errorDiv = container.querySelector('#login-error');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    errorDiv.classList.add('hidden');
     const username = form.username.value.trim();
     const password = form.password.value;
     // Simple hardcoded check (replace with real auth if needed)
     if (username === 'admin' && password === '1234') {
       localStorage.setItem('isLoggedIn', '1');
+      showToast('Giriş başarılı!', 'success');
       if (onLogin) onLogin();
     } else {
-      errorDiv.textContent = 'Kullanıcı adı veya şifre yanlış.';
-      errorDiv.classList.remove('hidden');
+      showToast('Kullanıcı adı veya şifre yanlış', 'error');
     }
   });
 }
