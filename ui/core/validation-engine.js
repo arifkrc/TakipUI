@@ -319,6 +319,17 @@ globalValidationEngine.defineSchema('cycleTime', {
   second: ['required', 'numeric', 'positive', { rule: 'maxValue', params: { max: 86400 } }]
 });
 
+globalValidationEngine.defineSchema('order', {
+  documentNo: ['required', 'minLength:3'],
+  customer: ['required', 'minLength:2'],
+  productCode: ['required', 'productCode'],
+  variants: [{ rule: 'maxLength', params: { max: 500 } }],
+  orderCount: ['numeric', 'min:0'],
+  carryover: ['numeric', 'min:0'],
+  orderAddedDateTime: ['dateTime'],
+  isActive: ['boolean']
+});
+
 // Max value rule için
 globalValidationEngine.addRule('maxValue', {
   validate: (value, params) => !value || Number(value) <= params.max,
@@ -409,6 +420,26 @@ export async function validateCycleTime(cycleTimeData, options = {}) {
   const rules = { ...globalValidationEngine.schemas.get('cycleTime') };
   
   return await globalValidationEngine.validateObject(cycleTimeData, rules);
+}
+
+export async function validateOrder(orderData, options = {}) {
+  const rules = {
+    documentNo: ['required', 'minLength:3'],
+    customer: ['required', 'minLength:2'],
+    productCode: ['required', 'productCode'],
+    variants: [],
+    orderCount: ['numeric', 'min:0'],
+    carryover: ['numeric', 'min:0']
+  };
+  
+  if (options.checkUnique && options.apiClient) {
+    rules.documentNo.push({
+      rule: 'uniqueDocumentNo',
+      params: { apiClient: options.apiClient }
+    });
+  }
+
+  return await globalValidationEngine.validateObject(orderData, rules);
 }
 
 // Quick validation helpers

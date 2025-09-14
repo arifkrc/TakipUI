@@ -167,6 +167,13 @@ function createWindow () {
     console.log('✅ Window is ready and shown');
   });
 
+  // F12 ile DevTools açma
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12') {
+      win.webContents.toggleDevTools();
+    }
+  });
+
   win.loadFile('index.html');
 }
 
@@ -485,6 +492,70 @@ ipcMain.handle('delete-cycle-time', async (event, id) => {
     return { ok: true, removed: true };
   } catch (err) {
     console.error('API Error (delete-cycle-time):', err.message);
+    return { ok: false, error: err.response?.data?.message || err.message };
+  }
+});
+
+// Product lookup handler
+ipcMain.handle('lookup-product', async (event, productCode) => {
+  try {
+    if (!productCode) {
+      return { ok: false, error: 'Product code is required' };
+    }
+    
+    const response = await axios.get(`${API_BASE_URL}/Products`);
+    const products = Array.isArray(response.data) ? response.data : (response.data?.data || []);
+    
+    const product = products.find(p => 
+      p.productCode && p.productCode.toUpperCase() === productCode.trim().toUpperCase()
+    );
+    
+    if (product) {
+      return { 
+        ok: true, 
+        product: {
+          id: product.id,
+          name: product.name,
+          productCode: product.productCode,
+          type: product.type
+        }
+      };
+    } else {
+      return { ok: false, error: 'Product not found' };
+    }
+  } catch (err) {
+    console.error('API Error (lookup-product):', err.message);
+    return { ok: false, error: err.response?.data?.message || err.message };
+  }
+});
+
+// Orders API handlers
+ipcMain.handle('save-order', async (event, record) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/Orders`, record);
+    return { ok: true, data: response.data };
+  } catch (err) {
+    console.error('API Error (save-order):', err.message);
+    return { ok: false, error: err.response?.data?.message || err.message };
+  }
+});
+
+ipcMain.handle('list-orders', async () => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/Orders`);
+    return { ok: true, records: response.data };
+  } catch (err) {
+    console.error('API Error (list-orders):', err.message);
+    return { ok: false, error: err.response?.data?.message || err.message, records: [] };
+  }
+});
+
+ipcMain.handle('delete-order', async (event, id) => {
+  try {
+    const response = await axios.delete(`${API_BASE_URL}/Orders/${id}`);
+    return { ok: true, removed: true };
+  } catch (err) {
+    console.error('API Error (delete-order):', err.message);
     return { ok: false, error: err.response?.data?.message || err.message };
   }
 });

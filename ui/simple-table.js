@@ -330,7 +330,14 @@ export function createSimpleTable(config) {
         columns.forEach(col => {
           const value = record[col.field];
           const renderedValue = renderCell(value, record, col);
-          tableHTML += `<td class="px-4 py-3 text-sm ${col.className || ''}" data-field="${col.field}">${renderedValue}</td>`;
+          
+          // Özel tıklanabilir hücreler için class ekle
+          const clickableClass = col.editable && config.customCellClickHandler ? 'cursor-pointer hover:bg-neutral-600/50' : '';
+          
+          tableHTML += `<td class="px-4 py-3 text-sm ${col.className || ''} ${clickableClass}" 
+                           data-field="${col.field}" 
+                           data-record-id="${record.id}"
+                           ${col.editable && config.customCellClickHandler ? 'data-clickable="true"' : ''}>${renderedValue}</td>`;
         });
 
         tableHTML += '</tr>';
@@ -344,6 +351,43 @@ export function createSimpleTable(config) {
 
     tableContainer.innerHTML = tableHTML;
     tableContainer.querySelector('table').setAttribute('data-table', 'true');
+
+    // Hücre tıklama event listener'ları ekle
+    if (config.customCellClickHandler) {
+      const clickableCells = tableContainer.querySelectorAll('td[data-clickable="true"]');
+      clickableCells.forEach(cell => {
+        cell.addEventListener('click', async (e) => {
+          const recordId = cell.getAttribute('data-record-id');
+          const fieldName = cell.getAttribute('data-field');
+          const record = allRecords.find(r => r.id == recordId);
+          const column = columns.find(c => c.field === fieldName);
+          
+          if (record && column) {
+            console.log('🎯 Cell clicked:', fieldName, 'for record:', recordId);
+            
+            try {
+              // Özel handler'ı çağır
+              const handled = await config.customCellClickHandler(
+                record, 
+                column, 
+                cell, 
+                config.apiBaseUrl, 
+                showToast, 
+                loadData
+              );
+              
+              // Eğer özel handler false dönerse, normal edit moduna geç
+              if (!handled) {
+                editRecord(recordId);
+              }
+            } catch (error) {
+              console.error('❌ Custom cell click handler error:', error);
+              showToast('Hücre tıklama hatası: ' + error.message, 'error');
+            }
+          }
+        });
+      });
+    }
 
     // Update pagination
     updatePagination(currentPage, totalPages, startIndex + 1, endIndex, totalItems);

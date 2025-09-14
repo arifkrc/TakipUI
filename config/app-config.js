@@ -29,10 +29,15 @@ export const API_CONFIG = {
     CYCLE_TIMES: '/CycleTimes',
     CYCLE_TIMES_BY_ID: '/CycleTimes/{id}',
     
-    // Other endpoints (future)
+    // Orders
+    ORDERS: '/Orders',
+    ORDERS_BY_ID: '/Orders/{id}',
+    ORDERS_ACTIVATE: '/Orders/{id}/activate',
+    ORDERS_DEACTIVATE: '/Orders/{id}/deactivate',
+    
+    // Other endpoints (legacy)
     PRODUCTION: '/uretim',
-    PACKAGING: '/paketleme',
-    ORDERS: '/siparis'
+    PACKAGING: '/paketleme'
   }
 };
 

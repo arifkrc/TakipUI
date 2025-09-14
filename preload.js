@@ -22,6 +22,17 @@ const api = {
   listCycleTimes: () => ipcRenderer.invoke('list-cycle-times'),
   deleteCycleTime: (id) => ipcRenderer.invoke('delete-cycle-time', id),
   
+  // orders
+  saveOrder: (data) => ipcRenderer.invoke('save-order', data),
+  listOrders: () => ipcRenderer.invoke('list-orders'),
+  deleteOrder: (id) => ipcRenderer.invoke('delete-order', id),
+  
+  // product lookup
+  lookupProduct: (productCode) => ipcRenderer.invoke('lookup-product', productCode),
+  
+  // product lookup
+  lookupProduct: (productCode) => ipcRenderer.invoke('lookup-product', productCode),
+  
   // operation types
   getOperationTypes: (onlyActive = false) => ipcRenderer.invoke('get-operation-types', onlyActive),
   
